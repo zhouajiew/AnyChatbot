@@ -1,7 +1,7 @@
 # AnyChatbot
 ## 蓝奏云下载地址
 ```
-https://wwauw.lanzouu.com/iwZsF3hfnvbg
+https://wwauw.lanzouu.com/i5I0U3hfvq6j
 ```
 ## 项目交流群
 QQ群
@@ -9,6 +9,7 @@ QQ群
 822949633
 ```
 ## 已实现的功能
+* 较低的tokens消耗
 * 沉浸式角色扮演
 * 自定义人设
 * 简易的记忆功能

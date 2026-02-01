@@ -1,7 +1,7 @@
 # AnyChatbot
 ## 蓝奏云下载地址
 ```
-https://wwauw.lanzouu.com/ikC8b3hh1axc
+https://wwauw.lanzouu.com/iTYrf3hiky9c
 ```
 ## 项目交流群
 QQ群

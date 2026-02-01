@@ -1,3 +1,7 @@
+textarea {
+  resize: none;
+}
+
 .App {
   text-align: center;
 }
@@ -35,20 +39,4 @@
   to {
     transform: rotate(360deg);
   }
-}
-
-.font1{
-      font-family: 'Hello Headline', 'lyt';
-      font-size: 50px;
-      color:#282c34;
-  }
-
-.font2{
-      font-family: 'Hello Headline', 'lyt';
-      font-size: 16px;
-      color:#282c34;
-  }
-
-input:placeholder-shown{
-  color: gray;
 }

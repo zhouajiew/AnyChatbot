@@ -1,0 +1,7 @@
+current_assistant = ["Bandit"]
+user_name = ["default"]
+model = ["deepseek-chat"]
+api_key = [""]
+model2 = ["deeppeek-chat"]
+api_key2 = [""]
+api_key3 = [""]

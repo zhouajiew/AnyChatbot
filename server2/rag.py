@@ -201,6 +201,11 @@ def write_in_rag3(who, data):
         os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
 
     original_data.append(data)
+
+    # 考虑到不应让文件太大，只取最新5000条
+    if len(original_data) > 5000:
+        original_data = original_data[-5000:]
+
     rag_num = len(original_data)
 
     with open(path, 'w', encoding='utf-8') as file:
@@ -226,6 +231,11 @@ def write_in_rag2(who, data):
         os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
 
     original_data.append(data)
+
+    # 考虑到不应让文件太大，只取最新5000条
+    if len(original_data) > 5000:
+        original_data = original_data[-5000:]
+
     rag_num = len(original_data)
 
     with open(path, 'w', encoding='utf-8') as file:
@@ -251,6 +261,11 @@ def write_in_rag(who, data):
         os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
 
     original_data.append(data)
+
+    # 考虑到不应让文件太大，只取最新5000条
+    if len(original_data) > 5000:
+        original_data = original_data[-5000:]
+
     rag_num = len(original_data)
 
     with open(path, 'w', encoding='utf-8') as file:

@@ -336,20 +336,37 @@ def generate_important_info_in_group(who, important_info, query_embedding):
     new_temp_type1 = rag_type1 + temp_type1
     new_temp_type1_2 = list(dict.fromkeys(new_temp_type1))
 
+    # 应考虑到不应该让important_info过长的问题
+
     # 去除重复的不喜欢的人/不喜欢做的事情/不喜欢的物品/不能做的事情
     temp_type2 = list(dict.fromkeys(important_info_type2))
+    # 取最新的10个
+    if len(temp_type2) > 10:
+        temp_type2 = temp_type2[-10:]
 
     # 去除重复的一直想做的事
     temp_type6 = list(dict.fromkeys(important_info_type6))
+    # 取最新的10个
+    if len(temp_type6) > 10:
+        temp_type6 = temp_type6[-10:]
 
     # 去除重复的价值观与信念
     temp_type7 = list(dict.fromkeys(important_info_type7))
+    # 取最新的10个
+    if len(temp_type7) > 10:
+        temp_type7 = temp_type7[-10:]
 
     # 去除重复的取得过的重大成就/经历过的艰难时刻
     temp_type8 = list(dict.fromkeys(important_info_type8))
+    # 取最新的10个
+    if len(temp_type8) > 10:
+        temp_type8 = temp_type8[-10:]
 
     # 去除重复的人物关系
     temp_relationships = list(dict.fromkeys(relationships))
+    # 取最新的10个
+    if len(temp_relationships) > 10:
+        temp_relationships = temp_relationships[-10:]
 
     def generate_content(temp_type):
         temp_content = ""
@@ -971,20 +988,37 @@ def generate_important_info(who, important_info, query_embedding, many_events_ne
     new_temp_type1 = rag_type1 + temp_type1
     new_temp_type1_2 = list(dict.fromkeys(new_temp_type1))
 
+    # 应考虑到不应该让important_info过长的问题
+
     # 去除重复的不喜欢的人/不喜欢做的事情/不喜欢的物品/不能做的事情
     temp_type2 = list(dict.fromkeys(important_info_type2))
+    # 取最新的10个
+    if len(temp_type2) > 10:
+        temp_type2 = temp_type2[-10:]
 
     # 去除重复的一直想做的事
     temp_type6 = list(dict.fromkeys(important_info_type6))
+    # 取最新的10个
+    if len(temp_type6) > 10:
+        temp_type6 = temp_type6[-10:]
 
     # 去除重复的价值观与信念
     temp_type7 = list(dict.fromkeys(important_info_type7))
+    # 取最新的10个
+    if len(temp_type7) > 10:
+        temp_type7 = temp_type7[-10:]
 
     # 去除重复的取得过的重大成就/经历过的艰难时刻
     temp_type8 = list(dict.fromkeys(important_info_type8))
+    # 取最新的10个
+    if len(temp_type8) > 10:
+        temp_type8 = temp_type8[-10:]
 
     # 去除重复的人物关系
     temp_relationships = list(dict.fromkeys(relationships))
+    # 取最新的10个
+    if len(temp_relationships) > 10:
+        temp_relationships = temp_relationships[-10:]
 
     def generate_content(temp_type):
         temp_content = ""

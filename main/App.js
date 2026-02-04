@@ -1,6 +1,6 @@
 import './App.css';
 import './output.css';
-import React, {useState, useEffect, useLayoutEffect} from 'react';
+import React, {useState, useEffect, useRef, useLayoutEffect} from 'react';
 import { io } from "socket.io-client";
 
 //开发环境1 非开发环境2
@@ -8,6 +8,8 @@ var current_environment = 1;
 
 var get_default_character = false;
 var get_config = false;
+
+var already_get_character2 = false;
 
 var character1 = "";
 var character2 = "";
@@ -41,7 +43,6 @@ var main_content = "";
 
 var main_content_element = null;
 
-var former_selected_type = -1;
 var selected_type = 0;
 
 var alert1_show_status = 0;
@@ -75,16 +76,21 @@ function getDefaultCharacter(){
   socket.once('character', function(msg) {
     get_default_character = true;
     character1 = msg;
-    changeMainContent();
   });
 }
 
 function getCharacter2(){
+  already_get_character2 = false;
+
   socket.emit('message', 'get_character2');
   socket.once('character2', function(msg) {
+    already_get_character2 = true;
+
     if (msg !== 'No data!'){
       character2 = msg;
-      changeMainContent();
+    }
+    else{
+      character2 = '';
     }
   });
 }
@@ -287,13 +293,14 @@ function changeMainContent(){
     }, 10)   
 }
 
-function BLeft(){
+function BLeft(props){
   const [type, setType] = useState(0);
 
   function begin_to_chat(){
     if (selected_type !== 0){
       selected_type = 0;
       setType(0);
+      props.callback_func(0);
     }
   }
 
@@ -306,13 +313,13 @@ function BLeft(){
       }
       selected_type = 1;
       setType(1);
+      props.callback_func(1);
       if (!get_default_character){
         console.log('获取默认人设中...');
         getDefaultCharacter();
       }
       else{
         console.log('已获取过默认人设，不再获取');
-        changeMainContent();
       }
     }
   }
@@ -326,6 +333,7 @@ function BLeft(){
       }    
       selected_type = 2;
       setType(2);
+      props.callback_func(2);
 
       console.log('获取自定义人设中...');
       getCharacter2();
@@ -343,6 +351,8 @@ function BLeft(){
 
       selected_type = 3;
       setType(3);
+      props.callback_func(3);
+
       getConfig();
     }
   }
@@ -357,6 +367,8 @@ function BLeft(){
       }
       selected_type = 4;
       setType(4);
+      props.callback_func(4);
+
       getConfig();    
     }  
   }
@@ -466,8 +478,7 @@ function MainInfoAssistantMsg({data,imageUrl}){
   )
 }
 
-function MainInfo(){
-  const [type, setType] = useState(selected_type);
+function MainInfo(type){
   const [mouseDown, setMouseDown] = useState(false);
   const [mouseDown2, setMouseDown2] = useState(false);
   const [mouseDown3, setMouseDown3] = useState(false);
@@ -482,9 +493,15 @@ function MainInfo(){
   const [file, setFile] = useState(null);
   const [file2, setFile2] = useState(null);
 
+  const temp_count = useRef(0);
+
   //获取用户头像
   const fetchImage = async () => {
     try {
+      while (user_name === ''){
+        await sleep(10);
+      }
+
       const response = await fetch(`http://localhost:1314/get-profile1/${user_name}`,{
         method:'GET',
       });
@@ -504,6 +521,10 @@ function MainInfo(){
   //获取助理头像
   const fetchImage2 = async () => {
     try {
+      while (user_name === ''){
+        await sleep(10);
+      }
+
       const response = await fetch(`http://localhost:1314/get-profile2/${assistant_name}`,{
         method:'GET',
       });
@@ -574,153 +595,168 @@ function MainInfo(){
   },);
 
   useEffect(() => {
-    // 每次渲染后都会执行此处的代码
-    if (selection_interval === -1){
-      selection_interval = setInterval(() => {
-        if (selected_type !== former_selected_type){
-          former_selected_type = selected_type;       
-          setType(selected_type);          
+    selected_type = type;
 
-          if (selected_type === 0){
-            var hc = null;
-            // 防止频繁触发记忆获取
-            var cant_get_memories_now = false;
-            
-            already_get_all_memories = false;
-            function handleMsgs(){
-              // 持续接收消息
-              if (message_interval < 0){
-                var once2 = false;
-                message_interval = setInterval(() => {
-                  if (!once2){
-                    once2 = true;
-                    console.log('持续接收消息中...');
-                    //console.log('已创建定时器(from_update_memories)'+message_interval.toString())
-                  }
-
-                  if (hc !== null){
-                    if (hc.scrollTop === 0 && !already_get_all_memories && !cant_get_memories_now){
-                      last_scrollHeight = hc.scrollHeight;
-                      hc.className = 'visible overflow-y-auto overflow-hidden';
-                      getMemories();
-                      is_history_msgs = true;
-                      cant_get_memories_now = true;
-                      setTimeout(() => {
-                        cant_get_memories_now = false;
-                      }, 1000);
-                      console.log('滚动条被移动至最上方，再次获取记忆');
-                    }
-                  }
-
-                  if (messages.length > current_messages_length){
-                    current_messages_length = messages.length;
-                    console.log('现在的消息数为:'+messages.length.toString());
-                    var m = [];
-                    for(var i=0;i<messages.length;i++){
-                      m.push({'index':i,'temp_id':'msg'+i.toString()});
-                    }                  
-                    setMsgs(m);
-
-                    var i2 = setInterval(() => {
-                      hc = document.getElementById("history_content");
-                      if(hc !== null){
-                        if(!is_history_msgs){
-                          //滚动到底部
-                          hc.scrollTop = hc.scrollHeight;
-                          hc.className = 'visible overflow-y-auto';
-                        }
-                        else{
-                          //hc.scrollTop = hc.scrollHeight - last_scrollHeight
-                          hc.className = 'visible overflow-y-auto';                          
-                        }              
-                        //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
-                        clearInterval(i2);                          
-                      }
-                    },10)
-                  }
-                }, 100);
-              }              
+    if (selected_type === 0){
+      var hc = null;
+      // 防止频繁触发记忆获取
+      var cant_get_memories_now = false;
+      
+      already_get_all_memories = false;
+      function handleMsgs(){
+        // 持续接收消息
+        if (message_interval < 0){
+          var once2 = false;
+          message_interval = setInterval(() => {
+            if (!once2){
+              once2 = true;
+              console.log('持续接收消息中...');
+              //console.log('已创建定时器(from_update_memories)'+message_interval.toString())
             }
 
-            handleMsgs();
-
-            if (user_profile_changed){
-              user_profile_changed = false;
-              fetchImage(); // 调用函数获取图片
+            if (hc !== null){
+              if (hc.scrollTop === 0 && !already_get_all_memories && !cant_get_memories_now){
+                last_scrollHeight = hc.scrollHeight;
+                hc.className = 'visible overflow-y-auto overflow-hidden';
+                getMemories();
+                is_history_msgs = true;
+                cant_get_memories_now = true;
+                setTimeout(() => {
+                  cant_get_memories_now = false;
+                }, 1000);
+                console.log('滚动条被移动至最上方，再次获取记忆');
+              }
             }
-            if (assistant_profile_changed){
-              assistant_profile_changed = false;
-              fetchImage2(); // 调用函数获取图片
-            }
 
-            if (!user_changed && !assistant_changed){
+            if (messages.length > current_messages_length){
+              current_messages_length = messages.length;
+              console.log('现在的消息数为:'+messages.length.toString());
+              var m = [];
+              for(var i=0;i<messages.length;i++){
+                m.push({'index':i,'temp_id':'msg'+i.toString()});
+              }                  
+              setMsgs(m);
+
               var i2 = setInterval(() => {
                 hc = document.getElementById("history_content");
                 if(hc !== null){
-                  //滚动到底部
-                  hc.scrollTop = hc.scrollHeight;
-                  hc.className = 'visible overflow-y-auto';
+                  if(!is_history_msgs){
+                    //滚动到底部
+                    hc.scrollTop = hc.scrollHeight;
+                    hc.className = 'visible overflow-y-auto';
+                  }
+                  else{
+                    //hc.scrollTop = hc.scrollHeight - last_scrollHeight
+                    hc.className = 'visible overflow-y-auto';                          
+                  }              
                   //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
-                  clearInterval(i2);                    
+                  clearInterval(i2);                          
                 }
               },10)
             }
+          }, 100);
+        }              
+      }
 
-            var get_onetime_memories = false;
+      handleMsgs();
 
-            if (user_changed){
-              user_changed = false;
-              memory_count = 1;
-              messages = [];
-              console.log('当前用户发生了变更，重新获取记忆，并重新获取头像');
-              update_memories();
-              get_onetime_memories = true;
-              fetchImage();
-              
-              var i2 = setInterval(() => {
-                hc = document.getElementById("history_content");
-                if(hc !== null){
-                  //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
-                  clearInterval(i2);                    
-                }
-              },10)               
-            }
-            if (assistant_changed){
-              assistant_changed = false;
-              console.log('当前助理发生了变更，重新获取头像');
-              fetchImage2();
-              if (!get_onetime_memories){
-                memory_count = 1;
-                messages = [];      
-                update_memories();
-                console.log('重新获取记忆');
+      if (user_profile_changed){
+        user_profile_changed = false;
+        fetchImage(); // 调用函数获取图片
+      }
+      if (assistant_profile_changed){
+        assistant_profile_changed = false;
+        fetchImage2(); // 调用函数获取图片
+      }
 
-                var i2 = setInterval(() => {
-                  hc = document.getElementById("history_content");
-                  if(hc !== null){
-                    //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
-                    clearInterval(i2);                    
-                  }
-                },10)                    
-              }
-              else{
-                console.log('已获取过记忆'); 
-              }     
+      if (!user_changed && !assistant_changed){
+        var i2 = setInterval(() => {
+          hc = document.getElementById("history_content");
+          if(hc !== null){
+            //滚动到底部
+            hc.scrollTop = hc.scrollHeight;
+            hc.className = 'visible overflow-y-auto';
+            //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
+            clearInterval(i2);                    
+          }
+        },10)
+      }
+
+      var get_onetime_memories = false;
+
+      if (user_changed){
+        user_changed = false;
+        memory_count = 1;
+        messages = [];
+        console.log('当前用户发生了变更，重新获取记忆，并重新获取头像');
+        update_memories();
+        get_onetime_memories = true;
+        fetchImage();
+        
+        var i2 = setInterval(() => {
+          hc = document.getElementById("history_content");
+          if(hc !== null){
+            //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
+            clearInterval(i2);                    
+          }
+        },10)               
+      }
+      if (assistant_changed){
+        assistant_changed = false;
+        console.log('当前助理发生了变更，重新获取头像');
+        fetchImage2();
+        if (!get_onetime_memories){
+          memory_count = 1;
+          messages = [];      
+          update_memories();
+          console.log('重新获取记忆');
+
+          var i2 = setInterval(() => {
+            hc = document.getElementById("history_content");
+            if(hc !== null){
+              //console.log('定时器(from_useEffect_i2)'+i2.toString()+'已清除')
+              clearInterval(i2);                    
             }
-          }
-          if (selected_type === -1){
-            main_content = "Hi, mate!";
-          }
-          if (selected_type === 1){
-            main_content = character1; 
-          }
-          if (selected_type === 2){
-            if (character2.length > 0){
-              main_content = character2;
-            }
-            else{
-              //main_content = `在这里创建你的自定义人设~\n请根据默认人设进行小范围修改`
-              main_content = 
+          },10)                    
+        }
+        else{
+          console.log('已获取过记忆'); 
+        }     
+      }
+    }
+    if (selected_type === -1){
+      main_content = "Hi, mate!";
+      changeMainContent(); 
+    }
+    if (selected_type === 1){
+      async function wait_until_get_character1() {
+        if (character1 === ''){
+          await sleep(10);
+
+          main_content = character1;
+          changeMainContent();            
+        }
+        else{
+          main_content = character1;
+          changeMainContent();
+        }
+      }
+
+      wait_until_get_character1();
+    }
+    if (selected_type === 2){
+      async function wait_until_get_character2() {
+        while (!already_get_character2){
+          await sleep(10);
+        }
+
+        if (character2.length > 0){
+          main_content = character2;
+          changeMainContent(); 
+        }
+        else{
+          //main_content = `在这里创建你的自定义人设~\n请根据默认人设进行小范围修改`
+          main_content = 
 `你需要扮演指定角色，你的回复必须遵循'角色扮演要求'！
 
 # 用户相关说明
@@ -768,21 +804,19 @@ function MainInfo(){
 -在没有任何有效信息的情况下，你需要从'对话1-5'中寻找有效信息，优先关注私聊对话内容，有选择性地参考群聊对话内容
 -如果在'对话1'中用户表明了要单独做其他事情，你就需要提取'对话1'的时间，并计算它与当前对话时间的间隔，如果间隔大于1个小时，你的回复应当包含类似'好久不见'的短语以及表达出对用户的关心
 -避免再次提及'对话1-5'中被用户忽略的请求！
--'对话6-10'的内容为'用户曾经说过的话'，如果用户新的回复与其中一段对话类似，你的回复可以包含类似'我记得你曾经说过这句话'的短语`;              
-            }
-          }      
-          if (selected_type === 3 || selected_type === 4){
-            main_content = "";
-          }                 
-          changeMainContent();
-          //console.log('定时器(from_useEffect)'+selection_interval.toString()+'已清除')
-          clearInterval(selection_interval);
-          selection_interval = -1;
-        }   
-      }, 100)
-      //console.log('已创建定时器(from_useEffect)'+selection_interval.toString())
-    }
-  });
+-'对话6-10'的内容为'用户曾经说过的话'，如果用户新的回复与其中一段对话类似，你的回复可以包含类似'我记得你曾经说过这句话'的短语`;   
+  
+          changeMainContent(); 
+        }        
+      }
+
+      wait_until_get_character2();
+    }      
+    if (selected_type === 3 || selected_type === 4){
+      main_content = "";
+      changeMainContent(); 
+    }                    
+  }, [type]);
 
   function save_character2(){
     saveCharacter2();
@@ -1566,22 +1600,11 @@ function SendArea(){
 }
 
 function App() {
+  const[current_selected_type, set_current_selected_type] = useState(0);
 
-  if (main1_timer === -1){
-    var last_selection = -1;
-    main1_timer = setInterval(() => {
-      if (selected_type !== last_selection){
-        last_selection = selected_type;
-
-        var m = document.getElementById('main1');
-        if (selected_type === 0 ){
-          m.className = "min-h-96 pt-4 pb-4 rounded-lg bg-gray-50 grid";
-        }
-        else{
-          m.className = "min-h-96 rounded-lg bg-gray-50 grid";
-        }        
-      }
-    }, 10);
+  // 使用回调函数将子组件的参数传递给父组件
+  function change_selected_type(type){
+    set_current_selected_type(type);
   }
 
   return (
@@ -1589,11 +1612,12 @@ function App() {
       <SaveAlert></SaveAlert>
       <div className="h-screen min-h-96 min-w-64 flex gap-2">
         <div className="ml-2 mt-2 gap-2 rounded-lg">
-          <BLeft></BLeft>    
+          <BLeft callback_func={change_selected_type}></BLeft>    
         </div>
         <div style={{height:'calc(100% - 1rem)'}} className="mt-2 mr-2 w-screen gap-2 rounded-lg">
-          <div id="main1" style={{height:'calc(100% - 8.5rem)'}} className={selected_type === 0 ? "min-h-96 pt-4 pb-4 rounded-lg bg-gray-50 grid" : "min-h-96 rounded-lg bg-gray-50 grid"}>
-            <MainInfo></MainInfo>
+          <div id="main1" style={{height:'calc(100% - 8.5rem)'}} className={current_selected_type === 0 ? "min-h-96 pt-4 pb-4 rounded-lg bg-gray-50 grid" : "min-h-96 rounded-lg bg-gray-50 grid"}>
+            {/* <MainInfo></MainInfo> */}
+            {MainInfo(current_selected_type)}
           </div>
           <SendArea></SendArea>
         </div>

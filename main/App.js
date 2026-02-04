@@ -47,11 +47,9 @@ var selected_type = 0;
 
 var alert1_show_status = 0;
 
-var main1_timer = -1;
 var alert_timer = -1;
 var message_interval = -1;
 var memory_interval = -1;
-var selection_interval = -1;
 
 var messages = [];
 

@@ -601,8 +601,9 @@ def generate_important_info(who, important_info, query_embedding, time_span):
             temp_type1.append(important_info_type1[t])
 
     # 删除距离当前时间超过1.5天(129600秒)的事件或1小时之内未完成/被中断的事件
-    # 2026-01-17: 已完成和无法完成的事件没有删除的必要，可以长时间保留，不然记忆能力会降低
+    # 2026-01-17: 都没有删除的必要，可以长时间保留，不然记忆能力会降低
     temp_type4 = []
+    '''
     current_time = datetime.timestamp(datetime.now())
     pattern = r'(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)'
     date_format = "%Y-%m-%d %H:%M:%S"
@@ -621,6 +622,8 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                 temp_type4.append(i)
             if time_difference < 3600 and '被中断' in i:
                 temp_type4.append(i)
+    '''
+    temp_type4 = important_info_type4[:]
 
     # 在今天的事件中删除'未完成'的事件(如果该事件被更新为'已完成'/'无法完成'/'被中断'/'进行中')
     delete_index = {}
@@ -767,6 +770,16 @@ def generate_important_info(who, important_info, query_embedding, time_span):
             if idx < len(interrupted_events_index_list) - 3:
                 delete_index[i] = 1
 
+    # 记录一下剩下没被删除的事件，后面需要保留这些事件
+    reserved_index = {}
+    temp_reserved_index = {}
+
+    for idx, i in enumerate(temp_type4):
+        if idx not in delete_index:
+            reserved_index[idx] = 1
+
+    original_time_span = time_span
+
     # 时间跨度为无，只取最新的3个已完成事件
     if time_span == "无":
         # 记录所有已完成事件的下标(不包含要删除的)
@@ -780,7 +793,22 @@ def generate_important_info(who, important_info, query_embedding, time_span):
             for idx, i in enumerate(finished_events_index_list):
                 if idx < len(finished_events_index_list) - 3:
                     delete_index[i] = 1
+    # 注意，如果时间跨度不为无，仍需要保留最近的事件，不然bot会不知道现在在干什么
     else:
+        # 最近已完成的事件仍只保留3个
+        # 记录所有已完成事件的下标(不包含要删除的)
+        finished_events_index_list = []
+
+        for idx, i in enumerate(temp_type4):
+            if '已完成' in i and idx not in delete_index:
+                finished_events_index_list.append(idx)
+
+        if len(finished_events_index_list) > 3:
+            for idx, i in enumerate(finished_events_index_list):
+                if idx < len(finished_events_index_list) - 3:
+                    if i in reserved_index:
+                        del reserved_index[i]
+
         date_format = "%Y-%m-%d %H:%M:%S"
         for idx, t in enumerate(temp_type4):
             pattern = r'(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)'
@@ -825,7 +853,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < six_days_ago or temp_time > three_days_ago:
+                        if (temp_time < six_days_ago or temp_time > three_days_ago) and idx not in reserved_index:
                             delete_index[idx] = 1
                     else:
                         pattern = r'(\d+)天前'
@@ -841,7 +869,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < several_days_ago1 or temp_time > several_days_ago2:
+                        if (temp_time < several_days_ago1 or temp_time > several_days_ago2) and idx not in reserved_index:
                             delete_index[idx] = 1
 
                 if '个星期前' in time_span:
@@ -860,7 +888,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < six_weeks_ago or temp_time > three_weeks_ago:
+                        if (temp_time < six_weeks_ago or temp_time > three_weeks_ago) and idx not in reserved_index:
                             delete_index[idx] = 1
                     else:
                         pattern = r'(\d+)个星期前'
@@ -878,7 +906,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < monday_of_several_weeks_ago or temp_time > sunday_of_several_weeks_ago:
+                        if (temp_time < monday_of_several_weeks_ago or temp_time > sunday_of_several_weeks_ago) and idx not in reserved_index:
                             delete_index[idx] = 1
 
                 if '个月前' in time_span:
@@ -922,7 +950,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < six_months_ago or temp_time > three_months_ago:
+                        if (temp_time < six_months_ago or temp_time > three_months_ago) and idx not in reserved_index:
                             delete_index[idx] = 1
                     else:
                         pattern = r'(\d+)个月前'
@@ -934,7 +962,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < timestamps[0] or temp_time > timestamps[1]:
+                        if (temp_time < timestamps[0] or temp_time > timestamps[1]) and idx not in reserved_index:
                             delete_index[idx] = 1
 
                 if '年前' in time_span:
@@ -962,7 +990,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                         temp_time = datetime.strptime(temp_time, date_format)
                         temp_time = temp_time.timestamp()
 
-                        if temp_time < six_years_ago or temp_time > three_years_ago:
+                        if (temp_time < six_years_ago or temp_time > three_years_ago) and idx not in reserved_index:
                             delete_index[idx] = 1
                     else:
                         pattern = r'(\d+)年前'
@@ -974,20 +1002,25 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
                         timestamps = get_several_years_ago(n)
 
-                        if temp_time < timestamps[0] or temp_time > timestamps[1]:
+                        if (temp_time < timestamps[0] or temp_time > timestamps[1]) and idx not in reserved_index:
                             delete_index[idx] = 1
 
-        # 随机取时间范围内的10个事件
-        if len(temp_type4) - len(delete_index) > 10:
-            reserved_index = []
+        if time_span != '无':
+            # 原先保留的事件不参与筛选
+            temp_reserved_index = reserved_index
 
-            for idx, i in enumerate(temp_type4):
-                if idx not in delete_index:
-                    reserved_index.append(idx)
+            # 随机取时间范围内的10个事件
+            if len(temp_type4) - len(delete_index) - len(reserved_index) > 10:
+                # 现在该变量意味着时间范围内的事件(排除原先保留的事件)
+                reserved_index = []
 
-            delete_index2 = random.sample(reserved_index, len(temp_type4) - len(delete_index) - 10)
-            for d in delete_index2:
-                delete_index[d] = 1
+                for idx, i in enumerate(temp_type4):
+                    if idx not in delete_index and idx not in temp_reserved_index:
+                        reserved_index.append(idx)
+
+                delete_index2 = random.sample(reserved_index, len(temp_type4) - len(delete_index) - len(temp_reserved_index) - 10)
+                for d in delete_index2:
+                    delete_index[d] = 1
 
     '''
     # 不需要提及过往的事件，只取最新的3个已完成事件
@@ -1017,61 +1050,77 @@ def generate_important_info(who, important_info, query_embedding, time_span):
                 if idx < len(finished_events_index_list) - 10:
                     delete_index[i] = 1
     '''
+    # 如果time_span不为无，需要将temp_type4的事件分成两部分(1.该时间范围内的事件; 2.原先保留的事件)
 
     new_temp_type4 = []
-    for idx, i in enumerate(temp_type4):
-        if idx not in delete_index:
-            new_temp_type4.append(i)
+    # 该时间范围内的事件
+    new_temp_type4_2 = []
+    # 原先保留的事件
+    new_temp_type4_3 = []
+
+    if time_span == "无":
+        for idx, i in enumerate(temp_type4):
+            if idx not in delete_index:
+                new_temp_type4_3.append(i)
+    else:
+        for idx, i in enumerate(temp_type4):
+            if idx not in delete_index:
+                new_temp_type4.append(i)
+                if idx not in temp_reserved_index:
+                    new_temp_type4_2.append(i)
+                else:
+                    new_temp_type4_3.append(i)
 
     all_tasks = new_temp_type4
 
+    # 进行中和未完成的事件只会在原先保留的事件中
     # 处于同一时间的进行中的任务的下标
     ongoing_tasks_at_the_same_time_index = {}
     # 最新的进行中的任务
     last_ongoing_task_index = -1
-    for idx,n in enumerate(new_temp_type4):
+    for idx,n in enumerate(new_temp_type4_3):
         if '进行中' in n:
             last_ongoing_task_index = idx
 
     if last_ongoing_task_index != -1:
         # 提取最后一个进行中的事的时间，因为可能有多个同时进行中的任务
         pattern = '(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)'
-        if re.search(pattern, new_temp_type4[last_ongoing_task_index]):
-            temp_time = re.search(pattern, new_temp_type4[last_ongoing_task_index]).group()
-            for idx,n in enumerate(new_temp_type4):
+        if re.search(pattern, new_temp_type4_3[last_ongoing_task_index]):
+            temp_time = re.search(pattern, new_temp_type4_3[last_ongoing_task_index]).group()
+            for idx,n in enumerate(new_temp_type4_3):
                 if temp_time in n and '进行中' in n:
                     ongoing_tasks_at_the_same_time_index[idx] = 1
 
     for o in ongoing_tasks_at_the_same_time_index:
         # 给最新的所有处于同一时间的进行中的事件打上标记
-        new_temp_type4[o] = f"(现在在和{current_assistant[0]}一起做的事) {new_temp_type4[o]}"
+        new_temp_type4_3[o] = f"(现在在和{current_assistant[0]}一起做的事) {new_temp_type4_3[o]}"
 
     # 将之前所有进行中的任务强制改为被中断
-    for idx,n in enumerate(new_temp_type4):
+    for idx,n in enumerate(new_temp_type4_3):
         if idx not in ongoing_tasks_at_the_same_time_index and '进行中' in n:
             pattern = r'\(进行中\)'
-            new_temp_type4[idx] = re.sub(pattern, "(被中断)", new_temp_type4[idx])
+            new_temp_type4_3[idx] = re.sub(pattern, "(被中断)", new_temp_type4_3[idx])
 
     # 处于同一时间的未完成的任务的下标
     unfinished_tasks_at_the_same_time = {}
     # 最新的未完成的任务
     last_unfinished_task_index = -1
-    for idx,n in enumerate(new_temp_type4):
+    for idx,n in enumerate(new_temp_type4_3):
         if '未完成' in n:
             last_unfinished_task_index = idx
 
     if last_unfinished_task_index != -1:
         # 提取最后一个进行中的事的时间，因为可能有多个同时进行中的任务
         pattern = '(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)'
-        if re.search(pattern, new_temp_type4[last_unfinished_task_index]):
-            temp_time = re.search(pattern, new_temp_type4[last_unfinished_task_index]).group()
-            for idx,n in enumerate(new_temp_type4):
+        if re.search(pattern, new_temp_type4_3[last_unfinished_task_index]):
+            temp_time = re.search(pattern, new_temp_type4_3[last_unfinished_task_index]).group()
+            for idx,n in enumerate(new_temp_type4_3):
                 if temp_time in n and '未完成' in n:
                     unfinished_tasks_at_the_same_time[idx] = 1
 
     for o in unfinished_tasks_at_the_same_time:
         # 给最新的所有处于同一时间的进行中的事件打上标记
-        new_temp_type4[o] = f"(最新的未完成的任务) {new_temp_type4[o]}"
+        new_temp_type4_3[o] = f"(最新的未完成的任务) {new_temp_type4_3[o]}"
 
     # 删除已兑现\不需要兑现\无法兑现的承诺
     temp_type5 = []
@@ -1256,7 +1305,12 @@ def generate_important_info(who, important_info, query_embedding, time_span):
     type6_content = generate_content(temp_type6)
     type7_content = generate_content(temp_type7)
     type8_content = generate_content(temp_type8)
-    type4_content = generate_content(new_temp_type4)
+    # type4_content = generate_content(new_temp_type4)
+    # 分成两部分
+    # 该时间范围内的事件
+    type4_content = generate_content(new_temp_type4_2)
+    # 原先保留的事件
+    type4_content_2 = generate_content(new_temp_type4_3)
     type5_content = generate_content(temp_type5)
     type9_content = generate_content(history_type9)
 
@@ -1296,8 +1350,10 @@ def generate_important_info(who, important_info, query_embedding, time_span):
         temp.append(f"*用户最近在忙什么事:{important_info_type3}\n")
     if len(rag_type2_content) > 0:
         temp.append(f"*可能与当前话题相关的事件:{rag_type2_content}\n")
-    if len(new_temp_type4) > 0:
-        temp.append(f"*用户最近和{current_assistant[0]}一起做了什么事:{type4_content}\n")
+    if len(new_temp_type4_2) > 0:
+        temp.append(f"*{original_time_span}的事件:{type4_content}\n")
+    if len(new_temp_type4_3) > 0:
+        temp.append(f"*用户最近和{current_assistant[0]}一起做了什么事:{type4_content_2}\n")
     if len(temp_type5) > 0:
         temp.append(f"*{current_assistant[0]}需要兑现的承诺:{type5_content}\n")
     '''
@@ -1336,7 +1392,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
     temp = []
     if len(new_temp_type4) > 0:
-        temp.append(f"*用户最近和{current_assistant[0]}一起做了什么事:{type4_content}\n")
+        temp.append(f"*用户最近和{current_assistant[0]}一起做了什么事:{type4_content_2}\n")
     if len(temp_type5) > 0:
         temp.append(f"*{current_assistant[0]}需要兑现的承诺:{type5_content}\n")
 
@@ -1495,7 +1551,9 @@ def get_important_info_and_rewrite2(who, translation, assistant):
 
                 type = "今天做了什么事"
                 temp_info = {"content": t_part, "type": type}
-                important_info.append(temp_info)
+                # 防止承诺被添加到此处
+                if '兑现' not in t_part:
+                    important_info.append(temp_info)
 
                 # 已完成的事件记录到rag3中、
                 if '已完成' in event:

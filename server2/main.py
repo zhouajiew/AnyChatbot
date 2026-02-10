@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from datetime import datetime
+from time import sleep
 
 from flask_socketio import SocketIO, send
 from flask import Flask, render_template, jsonify
@@ -29,8 +30,6 @@ custom_prompt = ""
 
 # 所有的新消息
 new_messages_list = []
-
-async_task_over = True
 
 private_message_count = 0
 
@@ -55,6 +54,8 @@ def client_connected():
     print('Client connected')
     init_config()
     read_config()
+    if enable_likeability[0] == 1:
+        current_likeability[0] = get_likeability(user_name[0])
 
 @socketio.on('save_character2')
 def save_character2(message):
@@ -81,16 +82,14 @@ def save_config(message):
 
 @socketio.on('get_api_response')
 def get_api_response(message):
-    global async_task_over
-
     new_messages_list.append(message)
     print('获取API回复请求')
-    if async_task_over:
-        async_task_over = False
-        asyncio.run(main())
 
 @socketio.on('get_memories')
 def get_memories(message):
+    if user_name[0] == "default":
+        sleep(0.1)
+
     print('获取记忆请求')
     data = json.loads(message)
     count = data[0].get('count')
@@ -110,19 +109,6 @@ def get_memories(message):
         else:
             #print(f'0:{len(memories) - num * (count - 1)}')
             temp_memories = memories[:len(memories) - num * (count - 1)]
-
-        # 去掉memories中的所有(hint:xxx)
-        for t in temp_memories:
-            pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons</系统提示>\)'
-            t['user_content'] = re.sub(pattern, r'', t['user_content'])
-            pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)'
-            t['user_content'] = re.sub(pattern, r'', t['user_content'])
-            pattern = r'\s*\(<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>\)'
-            t['user_content'] = re.sub(pattern, r'', t['user_content'])
-            pattern = r"\s*\(<系统提示>check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>\)"
-            t['user_content'] = re.sub(pattern, r'', t['user_content'])
-            pattern = r"\s*\(<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
-            t['user_content'] = re.sub(pattern, r'', t['user_content'])
 
         #print(temp_memories)
         socketio.emit("memories", temp_memories)
@@ -177,15 +163,26 @@ def get_default_character():
     global already_get_character1
 
     if not already_get_character1:
-        path = f'{relative_path}/设定.txt'
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding='utf-8') as file:
-                    character1 = file.read()
-                    return character1
-            except Exception as e:
-                print(f"读取设定.txt文件失败!")
-                pass
+        if app_environment[0] == 0:
+            path = f'{relative_path}/设定.txt'
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding='utf-8') as file:
+                        character1 = file.read()
+                        return character1
+                except Exception as e:
+                    print(f"读取设定.txt文件失败!")
+                    pass
+        else:
+            path = f'{relative_path}/设定2.txt'
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding='utf-8') as file:
+                        character1 = file.read()
+                        return character1
+                except Exception as e:
+                    print(f"读取设定.txt文件失败!")
+                    pass
     else:
         return character1
 
@@ -233,7 +230,8 @@ async def merge_msgs():
         except Exception as e:
             print(f"合并结果时出错:{e}")
 
-        # 多事件引用判断
+        '''
+        # 多事件引用判断(弃用，采用时间跨度提取)
         event_prompt = many_events_needed_prompt(merge_result)
         result = {}
         many_events_needed = False
@@ -252,6 +250,12 @@ async def merge_msgs():
                 file.write(full_content)
         except Exception as e:
             print(f"获取多事件引用判断失败!{e}")
+        '''
+
+        # 获取当前用户的最新记忆
+        memories = get_latest_memories(user_name[0])
+        # 时间跨度提取
+        time_span = get_time_span_prompt(merge_result, memories, 3, user_name[0])
 
         # 创建query的嵌入向量进行查询
         rag_content = ""
@@ -276,8 +280,6 @@ async def merge_msgs():
 
             temp_context = []
 
-            # 获取当前用户的最新记忆
-            memories = get_latest_memories(user_name[0])
             history_prompt = generate_history_prompt(5)
             history_content = generate_history_content(
                 5,
@@ -333,19 +335,7 @@ async def merge_msgs():
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             history_content = f"当前对话时间:{timestamp}\n\n以下是历史对话内容:\n**\n{history_content}\n\n"
 
-            # 去掉历史对话内容中的所有(hint:xxx)
             both_content = history_content + rag_content
-            pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons</系统提示>\)'
-            both_content = re.sub(pattern, r'', both_content)
-            pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)'
-            both_content = re.sub(pattern, r'', both_content)
-            pattern = r'\s*\(<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>\)'
-            both_content = re.sub(pattern, r'', both_content)
-            pattern = r"\s*\(<系统提示check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>\)"
-            both_content = re.sub(pattern, r'', both_content)
-            pattern = r"\s*\(<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
-            both_content = re.sub(pattern, r'', both_content)
-
             # print(f"{both_content}\n")
 
             with open(f"{relative_path}/historical_dialogs.txt", "w", encoding='utf-8') as file:
@@ -354,7 +344,7 @@ async def merge_msgs():
             context.append({"role": "user", "content": both_content})
             context.append({"role": "assistant", "content": "I will handle these contents properly!"})
             # 重要信息
-            important_info_content = generate_important_info(user_name[0], important_info, query_embedding, many_events_needed)
+            important_info_content = generate_important_info(user_name[0], important_info, query_embedding, time_span)
             temp_important_info_content = important_info_content
 
             important_info_content[0] = "以下是'需要注意到的重要信息'，你应当根据当前场景有选择性地参考他们，而不是全部参考他们。分数越高的信息越重要。\n\n" + important_info_content[0]
@@ -369,18 +359,6 @@ async def merge_msgs():
             fixed_context_length = len(context)
 
             for t in temp_context:
-                # 去掉上下文中的所有(hint:xxx)
-                pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons</系统提示>\)'
-                t["content"] = re.sub(pattern, r'', both_content)
-                pattern = r'\s*\(<系统提示>check whether your appearance will change for some reasons and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)'
-                t["content"] = re.sub(pattern, r'', t["content"])
-                pattern = r'\s*\(<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>\)'
-                t["content"] = re.sub(pattern, r'', t["content"])
-                pattern = r"\s*\(<系统提示>check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>\)"
-                t["content"] = re.sub(pattern, r'', t["content"])
-                pattern = r"\s*\(<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
-                t["content"] = re.sub(pattern, r'', t["content"])
-
                 context.append(t)
 
             # 管理上下文
@@ -424,7 +402,7 @@ async def merge_msgs():
                     latest_appearance_time[user_name[0]] = current_time
 
                     # 最近两件事中，无进行中和已完成的任务，强调这些提示以注意到可能的外在形象变化以及使用多样化语句
-                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>)"
+                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons (don't mention your appearance if your appearance has no changes!) and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>)"
                 else:
                     merge_result = f"{merge_result} (<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>)"
             else:
@@ -433,7 +411,7 @@ async def merge_msgs():
                     # 防止因外貌未发生变化导致的反复询问
                     latest_appearance_time[user_name[0]] = current_time
 
-                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons</系统提示>)"
+                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons (don't mention your appearance if your appearance has no changes!)</系统提示>)"
 
             if task_type == 1:
                 # 有进行中的任务，强调这些提示以推动情节发展
@@ -453,8 +431,33 @@ async def merge_msgs():
 
             socketio.emit('final_response', result.get('content'))
 
+            change_likeability_task = None
+            if enable_likeability[0] == 1:
+                change_likeability_task = asyncio.create_task(change_likeability(merge_result, result["content"], current_likeability[0], memories, 3, user_name[0]))
+                # change_likeability_thread = threading.Thread(target=change_likeability, args=(merge_result, result["content"], current_likeability[0], memories, 3, user_name[0]))
+                # change_likeability_thread.start()
+
             if len(memories) > 3:
                 # 获取Translation部分
+                t1 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 1))
+                t2 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 2))
+                t3 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 3))
+                if enable_likeability[0] == 0:
+                    await t1
+                    await t2
+                    await t3
+                    await asyncio.sleep(2)
+                else:
+                    await t1
+                    await t2
+                    await t3
+                    await change_likeability_task
+                    await asyncio.sleep(2)
+                    socketio.emit('likeability', current_likeability[0])
+                '''
                 t1 = threading.Thread(target=get_translation_part, args=(
                 memories[-3:], temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
                 current_assistant[0], 1))
@@ -470,8 +473,28 @@ async def merge_msgs():
                 t2.start()
                 await asyncio.sleep(2)
                 t3.start()
+                '''
             else:
                 # 获取Translation部分
+                t1 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 1))
+                t2 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 2))
+                t3 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
+                current_assistant[0], 3))
+                if enable_likeability[0] == 0:
+                    await t1
+                    await t2
+                    await t3
+                    await asyncio.sleep(2)
+                else:
+                    await t1
+                    await t2
+                    await t3
+                    await change_likeability_task
+                    await asyncio.sleep(2)
+                    socketio.emit('likeability', current_likeability[0])
+                '''
                 t1 = threading.Thread(target=get_translation_part, args=(
                 memories, temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
                 current_assistant[0], 1))
@@ -487,57 +510,92 @@ async def merge_msgs():
                 t2.start()
                 await asyncio.sleep(2)
                 t3.start()
+                '''
 
+            '''
             # 处理重要信息的任务执行情况
             task_status = 0
             while task_status < 3:
                 await asyncio.sleep(1)
                 task_status = get_task_status()
+            '''
 
-            # 处理重要信息的任务执行失败的话，不进行记录
-            if task_status == 3:
-                # 添加到上下文中
-                context_list.append({"who": user_name[0],
-                                     "user_content": merge_result,
-                                     "assistant_content": result["content"]})
+            # 去掉所有的hint
+            pattern = r"\s*\(<系统提示>check whether your appearance will change for some reasons \(don't mention your appearance if your appearance has no changes!\)</系统提示>\)"
+            merge_result = re.sub(pattern, r'', merge_result)
+            pattern = r"\s*\(<系统提示>check whether your appearance will change for some reasons \(don't mention your appearance if your appearance has no changes!\) and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
+            merge_result = re.sub(pattern, r'', merge_result)
+            pattern = r"\s*\(<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>\)"
+            merge_result = re.sub(pattern, r'', merge_result)
+            pattern = r"\s*\(<系统提示>check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>\)"
+            merge_result = re.sub(pattern, r'', merge_result)
+            pattern = r"\s*\(<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
+            merge_result = re.sub(pattern, r'', merge_result)
 
-                # 添加到记忆json中
+            # 添加到上下文中
+            context_list.append({"who": user_name[0],
+                                 "user_content": merge_result,
+                                 "assistant_content": result["content"]})
+
+            # 添加到记忆json中
+            # 如果启用了好感度的话，加上likeability
+            if enable_likeability[0] == 0:
                 add_to_memory([
                     {"timestamp": timestamp,
                      "user_content": merge_result,
                      "assistant_content": result["content"],
-                     "assistant_name":current_assistant[0]}
+                     "assistant_name": current_assistant[0]}
+                ], user_name[0])
+            else:
+                add_to_memory([
+                    {"timestamp": timestamp,
+                     "user_content": merge_result,
+                     "assistant_content": result["content"],
+                     "assistant_name": current_assistant[0],
+                     "likeability": current_likeability[0]}
                 ], user_name[0])
 
-                # 将用户的消息embedding到rag中
-                # 太短的merge_result不发送
-                if len(merge_result) > 10:
-                    user_content_embedding = get_query_embedding(merge_result)
+            # 将用户的消息embedding到rag中
+            # 太短的merge_result不发送
+            if len(merge_result) > 10:
+                user_content_embedding = get_query_embedding(merge_result)
 
-                    if user_content_embedding:
-                        rag_dic = {
-                            "timestamp": timestamp,
-                            "user_content": merge_result,
-                            "assistant_content": result["content"],
-                            "embedding": user_content_embedding
-                        }
+                if user_content_embedding:
+                    rag_dic = {
+                        "timestamp": timestamp,
+                        "user_content": merge_result,
+                        "assistant_content": result["content"],
+                        "embedding": user_content_embedding
+                    }
 
-                        write_in_rag(user_name[0], rag_dic)
-                else:
-                    print(f"合并的消息太短，不添加到{user_name[0]}_rag.json中\n")
+                    write_in_rag(user_name[0], rag_dic)
+            else:
+                print(f"合并的消息太短，不添加到{user_name[0]}_rag.json中\n")
+
+            '''
+            # 处理重要信息的任务执行失败的话，不进行记录
+            if task_status == 3:
+
             else:
                 await asyncio.sleep(2)
                 socketio.emit('error', "Oops! An error has occurred! Please try to send a message again!")
+            '''
 
         except Exception as e:
             print(f"回复消息时出错:{e}")
 
 async def main():
-    global async_task_over
+    while True:
+        await asyncio.sleep(0.1)
+        if len(new_messages_list) > 0:
+            task = asyncio.create_task(merge_msgs())
+            await task
 
-    task = asyncio.create_task(merge_msgs())
-    await task
-    async_task_over = True
+def run_app():
+    # app.run(debug=True)
+    socketio.run(app, port=5005, allow_unsafe_werkzeug=True)
 
-# app.run(debug=True)
-socketio.run(app, port=5005, allow_unsafe_werkzeug=True)
+app_thread = threading.Thread(target=run_app)
+app_thread.start()
+
+asyncio.run(main())

@@ -53,6 +53,11 @@ var memory_interval = -1;
 
 var messages = [];
 
+// 亲密度模式
+var enable_likeability = 0;
+// 显示对话时间
+var show_dialog_time = 0;
+
 if (process.env.NODE_ENV === "development") {
     current_environment = 1;
 } else {
@@ -109,6 +114,7 @@ function saveConfig(){
     var e3 = document.getElementById("model2");
     var e4 = document.getElementById("api_key2");    
     var e5 = document.getElementById("api_key3");
+
     model = e1.value;
     model2 = e3.value;
     if (model === 'model1'){
@@ -129,8 +135,10 @@ function saveConfig(){
     api_key3 = e5.value;
   }
   if (selected_type === 4){
-    e1 = document.getElementById("user_name");
-    e2 = document.getElementById("assistant_name");
+    var e1 = document.getElementById("user_name");
+    var e2 = document.getElementById("assistant_name");
+    var e3 = document.getElementById("likeability_option");
+    var e4 = document.getElementById("time_option");
 
     if (e1.value !== user_name){
       user_changed = true;
@@ -141,6 +149,20 @@ function saveConfig(){
 
     user_name = e1.value;
     assistant_name = e2.value;
+
+    if (e3.checked){
+      enable_likeability = 1;
+    }
+    else{
+      enable_likeability = 0;
+    }
+
+    if (e4.checked){
+      show_dialog_time = 1;
+    }
+    else{
+      show_dialog_time = 0;
+    }
   }
 
     socket.emit("save_config",
@@ -153,7 +175,9 @@ function saveConfig(){
         "api_key2":"${api_key2}",
         "api_key3":"${api_key3}",
         "user_name":"${user_name}",
-        "assistant_name":"${assistant_name}"
+        "assistant_name":"${assistant_name}",
+        "enable_likeability":${enable_likeability},
+        "show_dialog_time":${show_dialog_time}
        }
       ]
       `
@@ -175,12 +199,21 @@ function getMemories(){
   socket.once('memories', function(msg) {
     var temp_messages = [];
     // 传来的msg是Object，不用JSON处理
-
     if (msg.length > 0){
       memory_count += 1;
       msg.forEach((item, index) => {
         temp_messages.push({"role":"user","content":item['user_content']});
         temp_messages.push({"role":"assistant","content":item['assistant_content']});
+        if (enable_likeability === 1){
+          if ('likeability' in item){
+            temp_messages[temp_messages.length - 1]['likeability'] = item['likeability'];
+          }
+        }
+        if (show_dialog_time === 1){
+          if ('timestamp' in item){
+            temp_messages[temp_messages.length - 1]['timestamp'] = item['timestamp'];
+          }
+        }
       })
       messages = temp_messages.concat(messages);
       already_get_memories = true;
@@ -211,6 +244,8 @@ function getConfig(){
       api_key3 = data[0].api_key3;
       user_name = data[0].user_name;
       assistant_name = data[0].assistant_name;
+      enable_likeability = data[0].enable_likeability;
+      show_dialog_time = data[0].show_dialog_time;
 
       if(selected_type === 3){
         changeConfig();
@@ -254,6 +289,7 @@ function changeConfig(){
       e2.value = api_key;
       e4.value = api_key2;
       e5.value = api_key3;
+
       //console.log('定时器(from_changeConfig)'+temp_interval.toString()+'已清除')
       clearInterval(temp_interval);
 
@@ -268,9 +304,26 @@ function changeOthers(){
   var temp_interval = setInterval(() => {
     var e1 = document.getElementById("user_name");
     var e2 = document.getElementById("assistant_name");
+    var e3 = document.getElementById("likeability_option");
+    var e4 = document.getElementById("time_option");
     if(e1 !== null && e2 !== null){
       e1.value = user_name;
       e2.value = assistant_name;
+
+      if (enable_likeability === 0){
+        e3.checked = false;
+      }
+      else{
+        e3.checked = true;
+      }      
+
+      if (show_dialog_time === 0){
+        e4.checked = false;
+      }
+      else{
+        e4.checked = true;
+      }
+
       //console.log('定时器(from_changeOthers)'+temp_interval.toString()+'已清除')
       clearInterval(temp_interval);
 
@@ -461,8 +514,13 @@ function MainInfoAssistantMsg({data,imageUrl}){
         }
       </div>
       <div >
-        <div className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
-          {assistant_name}
+        <div className='flex'>
+          <div style={{whiteSpace:'pre-wrap'}} className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
+            {show_dialog_time === 1 && 'timestamp' in messages[data.index] ? `${assistant_name}   ${messages[data.index]['timestamp']}` : assistant_name}
+          </div>
+          <div style={{fontFamily:'Hello Headline'}} id={`likeability${data.temp_id.replace(/msg/,"")}`} className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
+            {enable_likeability === 1 && 'likeability' in messages[data.index] ? `🧡${messages[data.index]['likeability']}` : ''}
+          </div>          
         </div>
         <div className='ml-2 mt-2 rounded-lg bg-white'>
           <div id={data.temp_id} className='pl-2 pr-2 pt-1 pb-1 leading-8 grid place-items-center'>
@@ -994,6 +1052,8 @@ function MainInfo(type){
     }
   };
 
+  // 好感度模式
+
   //上传用户头像
   const handleUpload1 = async () => {
     if (!file) {
@@ -1397,7 +1457,17 @@ function MainInfo(type){
               onChange={handleFileChange2}
               className="sr-only" />
           </label>          
-        </div>                                
+        </div>  
+        <div className='mt-4 flex'>
+          <label htmlFor="likeability_option" className="ml-2 inline-flex items-center gap-3">
+            <span className="text-xl font-bold text-gray-700"> 好感度模式 </span>
+            <input type="checkbox" className="size-5 rounded border-gray-300 shadow-sm" id="likeability_option"/>
+          </label>  
+          <label htmlFor="time_option" className="ml-4 inline-flex items-center gap-3">
+            <span className="text-xl font-bold text-gray-700"> 显示对话时间 </span>
+            <input type="checkbox" className="size-5 rounded border-gray-300 shadow-sm" id="time_option"/>
+          </label>                   
+        </div>                              
         <button
           id='save2'
           disabled={button2Disabled}
@@ -1510,6 +1580,12 @@ function SendArea(){
               }
             }, 1000);
           });
+          if (enable_likeability === 1){
+            socket.once('likeability', function(msg) {
+              var m = document.getElementById('likeability'+(messages.length - 1).toString());
+              m.innerHTML = `🧡${msg}`;
+            });
+          }          
           socket.once('final_response', function(msg) {
             setButtonDisabled(false);
             get_onetime_response = false;

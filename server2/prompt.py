@@ -447,17 +447,24 @@ async def change_likeability(new_message, your_reply, likeability, memories, num
         pattern = r'\d+'
         if re.search(pattern, result['content']):
             temp_likeability = re.search(pattern, result['content']).group()
-            current_likeability[0] = int(temp_likeability)
+            # 检查输出的好感度数值与上次的差值，差值异常则保持好感度数值不变
+            if -5 <= current_likeability[0] - int(temp_likeability) <= 5:
+                current_likeability[0] = int(temp_likeability)
 
-        with open(f"{relative_path}/private/{who}/likeability({current_assistant[0]}).txt", "w", encoding='utf-8') as file:
-            full_content = result['content']
-            file.write(full_content)
+                if current_likeability[0] > 100:
+                    current_likeability[0] = 100
+                if current_likeability[0] < 0:
+                    current_likeability[0] = 0
 
-        with open(f"{relative_path}/likeability.txt", "w", encoding='utf-8') as file:
-            full_content = f'completion_tokens:{result["completion_tokens"]}\nprompt_cache_hit_tokens:{result["prompt_cache_hit_tokens"]}\nprompt_cache_miss_tokens:{result["prompt_cache_miss_tokens"]}\n\n本次请求消费{result["cost"]}元\n\n{result['content']}'
-            file.write(full_content)
+                with open(f"{relative_path}/private/{who}/likeability({current_assistant[0]}).txt", "w", encoding='utf-8') as file:
+                    full_content = temp_likeability
+                    file.write(full_content)
 
-        return result["content"]
+                with open(f"{relative_path}/likeability.txt", "w", encoding='utf-8') as file:
+                    full_content = f'completion_tokens:{result["completion_tokens"]}\nprompt_cache_hit_tokens:{result["prompt_cache_hit_tokens"]}\nprompt_cache_miss_tokens:{result["prompt_cache_miss_tokens"]}\n\n本次请求消费{result["cost"]}元\n\n{result['content']}'
+                    file.write(full_content)
+
+        return current_likeability[0]
     except Exception as e:
         print(f"修改好感度失败!{e}")
 

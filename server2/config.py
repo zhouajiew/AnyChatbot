@@ -28,7 +28,9 @@ def init_config():
                          "api_key2":"your API key",
                          "api_key3":"your API key",
                          "user_name":"default",
-                         "assistant_name":"Bandit"})
+                         "assistant_name":"Bandit",
+                         "enable_likeability": 0,
+                         "show_dialog_time": 0})
 
             # 打开文件，以写入模式创建文件对象
             with open(f'{relative_path}/config.json', 'w', encoding='utf-8') as file:
@@ -55,6 +57,8 @@ def read_config():
             api_key3[0] = original_data[0].get('api_key3')
             user_name[0] = original_data[0].get('user_name')
             current_assistant[0] = original_data[0].get('assistant_name')
+            enable_likeability[0] = original_data[0].get('enable_likeability')
+            show_dialog_time[0] = original_data[0].get('show_dialog_time')
 
             return original_data
         except Exception as e:
@@ -65,7 +69,6 @@ def read_config():
 
 # 修改config.json文件
 def set_config(data):
-
     model[0] = data[0].get('model')
     api_key[0] = data[0].get('api_key')
     model2[0] = data[0].get('model2')
@@ -73,6 +76,8 @@ def set_config(data):
     api_key3[0] = data[0].get('api_key3')
     current_assistant[0] = data[0].get('assistant_name')
     user_name[0] = data[0].get('user_name')
+    enable_likeability[0] = data[0].get('enable_likeability')
+    show_dialog_time[0] = data[0].get('show_dialog_time')
 
     # 打开文件，以写入模式创建文件对象
     with open(f'{relative_path}/config.json', 'w',encoding='utf-8') as file:
@@ -80,3 +85,27 @@ def set_config(data):
         file.write(json.dumps(data,indent=1,ensure_ascii=False))
 
     print(f"修改config.json文件成功!\n")
+
+    if enable_likeability[0] == 1:
+        current_likeability[0] = get_likeability(user_name[0])
+
+# 读取亲密度
+def get_likeability(who):
+    likeability = 50
+
+    path = f"{relative_path}/private"
+    if not os.path.exists(path):
+        os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
+
+    try:
+        with open(f"{relative_path}/private/{who}/likeability({current_assistant[0]}).txt", "r", encoding='utf-8') as file:
+            content = file.read()
+
+        try:
+            likeability = int(content)
+        except Exception as e:
+            pass
+    except Exception as e:
+        print(f"读取likeability({current_assistant[0]}).txt文件失败!")
+
+    return likeability

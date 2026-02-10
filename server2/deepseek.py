@@ -7,7 +7,7 @@ import threading
 import time
 
 import requests
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 
 from global_variable import api_key
 
@@ -37,18 +37,6 @@ def balances_info():
         print('查询余额的请求超时!\n')
     except requests.exceptions.RequestException as e:
         print(f"查询余额的请求发生错误: {e}\n")
-
-# 示例对话
-def example_context():
-    example_str = "**\n"
-    example_str += "用户的消息:Hi dad!\n"
-    example_str += "你的回复:G'day Jo! (looks up from newspaper with a playful grin) Calling me dad again? (shakes head laughing) Reckon you're stuck on that nickname worse than gum on a shoe! (sets paper aside) What mischief are we cooking up today, mate?\n"
-    example_str += "用户的消息:I just love calling u dad! (Grins)\n"
-    example_str += f"你的回复:(Chuckles warmly while folding newspaper) Fair dinkum, you're more stubborn about this than Bingo with her blankie! (Leans forward with mock seriousness) But if calling me dad makes you happy... (shrugs with a grin) who am I to argue with my favorite bloke? So - what's the plan, chief?"
-    example_str += "用户的消息:Oh dad, how about going outside to order pure milk tea?\n"
-    example_str += f"你的回复:(immediately springs up from couch) Pure milk tea? (rubs hands together excitedly) Mate, you're speaking my language! (grabs keys) Though fair warning... (winks) I might need you to carry me if my feet get tired from all that walking."
-
-    return example_str
 
 # 管理上下文
 def manage_context(max_context, context, fixed_context_length):
@@ -205,7 +193,8 @@ def get_ai_response2_stream(model, messages, who):
             file.write(full_content)
         '''
 
-        return {"reasoning_content":reasoning_content, "content":content, "cost":cost,
+        return {"reasoning_content":reasoning_content, "content":content,
+                "cost":cost,
                 "completion_tokens":completion_tokens,
                 "prompt_cache_hit_tokens":cache_hit_tokens,
                 "prompt_cache_miss_tokens":cache_miss_tokens}
@@ -217,7 +206,8 @@ def get_ai_response2_stream(model, messages, who):
             file.write(full_content)
         '''
 
-        return {"content":content, "cost":cost,
+        return {"content":content,
+                "cost":cost,
                 "completion_tokens": completion_tokens,
                 "prompt_cache_hit_tokens": cache_hit_tokens,
                 "prompt_cache_miss_tokens": cache_miss_tokens
@@ -237,13 +227,12 @@ async def get_ai_response(model, messages, who):
 
     response = None
 
-    client = OpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
+    client = AsyncOpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
 
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=messages,
-            max_tokens=4096
         )
     except Exception as e:
         print(f"获取deepseek回复时出错!{e}")
@@ -255,8 +244,8 @@ async def get_ai_response(model, messages, who):
 
     content = response.choices[0].message.content
 
-    print("\n思维链:\n" + reasoning_content)
-    print("\n最终回复:\n" + content)
+    # print("\n思维链:\n" + reasoning_content)
+    # print("\n最终回复:\n" + content)
 
     completion_tokens = 0
     cache_hit_tokens = 0
@@ -267,9 +256,9 @@ async def get_ai_response(model, messages, who):
         completion_tokens = int(response.usage.completion_tokens)
         cache_hit_tokens = int(response.usage.prompt_cache_hit_tokens)
         cache_miss_tokens = int(response.usage.prompt_cache_miss_tokens)
-        print("completion_tokens:" + str(response.usage.completion_tokens))
-        print("prompt_cache_hit_tokens:" + str(response.usage.prompt_cache_hit_tokens))
-        print("prompt_cache_miss_tokens:" + str(response.usage.prompt_cache_miss_tokens))
+        # print("completion_tokens:" + str(response.usage.completion_tokens))
+        # print("prompt_cache_hit_tokens:" + str(response.usage.prompt_cache_hit_tokens))
+        # print("prompt_cache_miss_tokens:" + str(response.usage.prompt_cache_miss_tokens))
     except Exception as e:
         print(f"获取tokens相关信息失败!{e}\n")
         pass
@@ -286,9 +275,17 @@ async def get_ai_response(model, messages, who):
     # print(f"本次请求执行时间为{total_time}s\n")
 
     if reasoning_content != "":
-        return {"reasoning_content":reasoning_content, "content":content}
+        return {"reasoning_content":reasoning_content, "content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
     else:
-        return {"content":content}
+        return {"content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
 
 # 异步获取ai回复，流式输出显示
 async def get_ai_response_stream(model, messages, who):
@@ -303,13 +300,16 @@ async def get_ai_response_stream(model, messages, who):
         print(m)
     '''
 
-    client = OpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
+    client = AsyncOpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=True,
-    )
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            stream=True,
+        )
+    except Exception as e:
+        print(f"获取deepseek回复时出错!{e}")
 
     completion_tokens = 0
     cache_hit_tokens = 0
@@ -324,7 +324,7 @@ async def get_ai_response_stream(model, messages, who):
 
     all_chunk = []
 
-    for chunk in response:
+    async for chunk in response:
         all_chunk.append(chunk)
         # R1模型
         if hasattr(chunk.choices[0].delta, "reasoning_content"):
@@ -360,9 +360,9 @@ async def get_ai_response_stream(model, messages, who):
         completion_tokens = int(tokens_list["completion_tokens"])
         cache_hit_tokens = int(tokens_list["prompt_cache_hit_tokens"])
         cache_miss_tokens = int(tokens_list["prompt_cache_miss_tokens"])
-        print(f"\n\ncompletion_tokens:{completion_tokens}")
-        print(f"prompt_cache_hit_tokens:{cache_hit_tokens}")
-        print(f"prompt_cache_miss_tokens:{cache_miss_tokens}\n")
+        # print(f"\n\ncompletion_tokens:{completion_tokens}")
+        # print(f"prompt_cache_hit_tokens:{cache_hit_tokens}")
+        # print(f"prompt_cache_miss_tokens:{cache_miss_tokens}\n")
 
     cost = (0.3 * cache_hit_tokens + 2 * cache_miss_tokens + 3 * completion_tokens) / 1000000
 

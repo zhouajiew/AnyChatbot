@@ -4,7 +4,7 @@ import math
 import os
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from deepseek import *
 from rag import *
@@ -420,7 +420,7 @@ def generate_important_info_in_group(who, important_info, query_embedding):
     return temp_important_info
 
 # 构建重要信息
-def generate_important_info(who, important_info, query_embedding, many_events_needed):
+def generate_important_info(who, important_info, query_embedding, time_span):
     global all_tasks
     global last_promise
     global last_appearance_time
@@ -770,6 +770,229 @@ def generate_important_info(who, important_info, query_embedding, many_events_ne
             if idx < len(interrupted_events_index_list) - 3:
                 delete_index[i] = 1
 
+    # 时间跨度为无，只取最新的3个已完成事件
+    if time_span == "无":
+        # 记录所有已完成事件的下标(不包含要删除的)
+        finished_events_index_list = []
+
+        for idx, i in enumerate(temp_type4):
+            if '已完成' in i and idx not in delete_index:
+                finished_events_index_list.append(idx)
+
+        if len(finished_events_index_list) > 3:
+            for idx, i in enumerate(finished_events_index_list):
+                if idx < len(finished_events_index_list) - 3:
+                    delete_index[i] = 1
+    else:
+        date_format = "%Y-%m-%d %H:%M:%S"
+        for idx, t in enumerate(temp_type4):
+            pattern = r'(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)'
+            if re.search(pattern, t):
+                now = datetime.now()
+                temp_time = re.search(pattern, t).group()
+                if time_span == "今天":
+                    pattern = r'(\d+)-(\d+)-(\d+)'
+                    if re.search(pattern, temp_time):
+                        temp_time = re.search(pattern, temp_time).group()
+                    timestamp = now.strftime("%Y-%m-%d")
+                    if temp_time != timestamp:
+                        delete_index[idx] = 1
+
+                if time_span == "昨天":
+                    time_span = "1天前"
+
+                if time_span == "上个星期":
+                    time_span = "1个星期前"
+
+                if time_span == "上个月":
+                    time_span = "1个月前"
+
+                if time_span == "去年":
+                    time_span = "1年前"
+
+                # 防止输出'几'
+                time_span = re.sub(r'几', 'n', time_span)
+
+                if '天前' in time_span:
+                    n = ""
+
+                    if 'n' in time_span:
+                        # 对于几天前，提取6天前(00:00:00)-3天前(23:59:59)这段时间的记忆
+                        three_days_ago = now - timedelta(days=3)
+                        six_days_ago = now - timedelta(days=6)
+                        three_days_ago = three_days_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        six_days_ago = six_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        three_days_ago = three_days_ago.timestamp()
+                        six_days_ago = six_days_ago.timestamp()
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < six_days_ago or temp_time > three_days_ago:
+                            delete_index[idx] = 1
+                    else:
+                        pattern = r'(\d+)天前'
+                        if re.search(pattern, time_span):
+                            n = int(re.search(pattern, time_span).group(1))
+
+                        several_days_ago = now - timedelta(days=n)
+                        several_days_ago1 = several_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        several_days_ago2 = several_days_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        several_days_ago1 = several_days_ago1.timestamp()
+                        several_days_ago2 = several_days_ago2.timestamp()
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < several_days_ago1 or temp_time > several_days_ago2:
+                            delete_index[idx] = 1
+
+                if '个星期前' in time_span:
+                    n = ""
+
+                    if 'n' in time_span:
+                        weekday_number = now.weekday()
+                        # 对于几个星期前，提取6个星期前(00:00:00)-3个星期前(23:59:59)这段时间的记忆
+                        three_weeks_ago = now - timedelta(days=21+weekday_number)
+                        six_weeks_ago = now - timedelta(days=42+weekday_number)
+                        three_weeks_ago = three_weeks_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        six_weeks_ago = six_weeks_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        three_weeks_ago = three_weeks_ago.timestamp()
+                        six_weeks_ago = six_weeks_ago.timestamp()
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < six_weeks_ago or temp_time > three_weeks_ago:
+                            delete_index[idx] = 1
+                    else:
+                        pattern = r'(\d+)个星期前'
+                        if re.search(pattern, time_span):
+                            n = int(re.search(pattern, time_span).group(1))
+
+                        weekday_number = now.weekday()
+                        monday_of_several_weeks_ago = now - timedelta(days=7*n+weekday_number)
+                        sunday_of_several_weeks_ago = now - timedelta(days=7*(n-1)+weekday_number+1)
+                        monday_of_several_weeks_ago = monday_of_several_weeks_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        sunday_of_several_weeks_ago = sunday_of_several_weeks_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        monday_of_several_weeks_ago = monday_of_several_weeks_ago.timestamp()
+                        sunday_of_several_weeks_ago = sunday_of_several_weeks_ago.timestamp()
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < monday_of_several_weeks_ago or temp_time > sunday_of_several_weeks_ago:
+                            delete_index[idx] = 1
+
+                if '个月前' in time_span:
+                    def get_several_months_ago(n):
+                        # 获取当前日期
+                        today = datetime.now()
+                        temp_month = today.month
+                        temp_year = today.year
+                        # 还要考虑到超过12个月的情况
+                        y = math.floor(n / 12)
+                        n2 = n - 12 * y
+                        if temp_month - n2 > 0:
+                            last_day_of_several_months_ago = today.replace(day=1, month=temp_month - n2 + 1,
+                                                                           year=temp_year - y) - timedelta(days=1)
+                            first_day_of_several_months_ago = last_day_of_several_months_ago.replace(day=1)
+                        else:
+                            temp_month2 = temp_month - n2 + 12
+                            first_day_of_this_year = today.replace(day=1, month=1)
+                            last_day_of_last_year = first_day_of_this_year - timedelta(days=1)
+                            last_day_of_several_months_ago = last_day_of_last_year.replace(year=temp_year - y - 1)
+                            first_day_of_several_months_ago = last_day_of_several_months_ago.replace(day=1,
+                                                                                                     month=temp_month2)
+                            if temp_month2 + 1 <= 12:
+                                last_day_of_several_months_ago = first_day_of_several_months_ago.replace(
+                                    month=temp_month2 + 1) - timedelta(days=1)
+
+                        first_day_of_several_months_ago = first_day_of_several_months_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        last_day_of_several_months_ago = last_day_of_several_months_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        first_day_of_several_months_ago = first_day_of_several_months_ago.timestamp()
+                        last_day_of_several_months_ago = last_day_of_several_months_ago.timestamp()
+
+                        return [first_day_of_several_months_ago, last_day_of_several_months_ago]
+
+                    n = ""
+
+                    if 'n' in time_span:
+                        # 对于几个月前，提取6个月前(00:00:00)-3个月前(23:59:59)这段时间的记忆
+                        three_months_ago = get_several_months_ago(3)[1]
+                        six_months_ago = get_several_months_ago(6)[0]
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < six_months_ago or temp_time > three_months_ago:
+                            delete_index[idx] = 1
+                    else:
+                        pattern = r'(\d+)个月前'
+                        if re.search(pattern, time_span):
+                            n = int(re.search(pattern, time_span).group(1))
+
+                        timestamps = get_several_months_ago(n)
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < timestamps[0] or temp_time > timestamps[1]:
+                            delete_index[idx] = 1
+
+                if '年前' in time_span:
+                    def get_several_years_ago(n):
+                        # 获取当前日期
+                        today = datetime.now()
+                        # 获取n年前的最后一天
+                        last_day_of_several_years_ago = (today.replace(day=1, month=1, year=today.year-n+1) - timedelta(days=1))
+                        # 获取n年前的第一天
+                        first_day_of_several_years_ago = last_day_of_several_years_ago.replace(day=1, month=1)
+                        last_day_of_several_years_ago = last_day_of_several_years_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
+                        first_day_of_several_years_ago = first_day_of_several_years_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                        last_day_of_several_years_ago = last_day_of_several_years_ago.timestamp()
+                        first_day_of_several_years_ago = first_day_of_several_years_ago.timestamp()
+
+                        return [first_day_of_several_years_ago, last_day_of_several_years_ago]
+
+                    n = ""
+
+                    if 'n' in time_span:
+                        # 对于几年前，提取6年前(00:00:00)-3年前(23:59:59)这段时间的记忆
+                        three_years_ago = get_several_years_ago(3)[1]
+                        six_years_ago = get_several_years_ago(3)[0]
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        if temp_time < six_years_ago or temp_time > three_years_ago:
+                            delete_index[idx] = 1
+                    else:
+                        pattern = r'(\d+)年前'
+                        if re.search(pattern, time_span):
+                            n = int(re.search(pattern, time_span).group(1))
+
+                        temp_time = datetime.strptime(temp_time, date_format)
+                        temp_time = temp_time.timestamp()
+
+                        timestamps = get_several_years_ago(n)
+
+                        if temp_time < timestamps[0] or temp_time > timestamps[1]:
+                            delete_index[idx] = 1
+
+        # 随机取时间范围内的10个事件
+        if len(temp_type4) - len(delete_index) > 10:
+            reserved_index = []
+
+            for idx, i in enumerate(temp_type4):
+                if idx not in delete_index:
+                    reserved_index.append(idx)
+
+            delete_index2 = random.sample(reserved_index, len(temp_type4) - len(delete_index) - 10)
+            for d in delete_index2:
+                delete_index[d] = 1
+
+    '''
     # 不需要提及过往的事件，只取最新的3个已完成事件
     if not many_events_needed:
         # 记录所有已完成事件的下标(不包含要删除的)
@@ -796,6 +1019,7 @@ def generate_important_info(who, important_info, query_embedding, many_events_ne
             for idx, i in enumerate(finished_events_index_list):
                 if idx < len(finished_events_index_list) - 10:
                     delete_index[i] = 1
+    '''
 
     new_temp_type4 = []
     for idx, i in enumerate(temp_type4):
@@ -1220,11 +1444,17 @@ def get_important_info_and_rewrite2(who, translation, assistant):
                     contain_these_words = True
                     break
 
+            # 注意，应该RAG的地方不应包括后面括号内的东西！
             if not contain_these_words:
                 # 包含'标准1'、'标准3'、'标准4'的translation直接归类为'概括'
                 for w in words_list:
                     if w in t_part:
                         # 临时想做的事情，加上时间标签
+                        embedding_part = t_part
+                        pattern = r'([\s\S]*\.)\s*\(重要程度[\s\S]*\)'
+                        if re.search(pattern, t_part):
+                            embedding_part = re.search(pattern, t_part).group(1)
+
                         if "标准4" in t_part:
                             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             t_part = timestamp + f" {t_part}"
@@ -1235,7 +1465,7 @@ def get_important_info_and_rewrite2(who, translation, assistant):
 
                         # print("该translation被直接归类为'概括'并记录到重要信息中。\n")
 
-                        embedding = get_query_embedding(t_part)
+                        embedding = get_query_embedding(embedding_part)
 
                         if embedding:
                             rag_dic = {
@@ -1247,13 +1477,18 @@ def get_important_info_and_rewrite2(who, translation, assistant):
             # 包含'今天'的translation直接归类为'今天做了什么事'
             if '今天' in t_part:
                 event = ''
-
                 # 去除可能携带的时间信息，并重新添加上'今天'
                 pattern = r'((([Tt]he)|(Bandit))[\s\S]*)'
                 if re.search(pattern, t_part):
                     t_part = re.search(pattern, t_part).group()
                     event = t_part
                     t_part = f'今天 {t_part}'
+
+                embedding_part = ""
+                if '已完成' in event:
+                    pattern = r'((([Tt]he)|(Bandit))[\s\S]*\.)\s*\(已完成\)'
+                    if re.search(pattern, event):
+                        embedding_part = re.search(pattern, event).group(1)
 
                 # 今天做了什么事，加上时间标签
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1267,7 +1502,7 @@ def get_important_info_and_rewrite2(who, translation, assistant):
 
                 # 已完成的事件记录到rag3中、
                 if '已完成' in event:
-                    embedding = get_query_embedding(event)
+                    embedding = get_query_embedding(embedding_part)
 
                     if embedding:
                         rag_dic = {

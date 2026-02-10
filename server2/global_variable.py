@@ -13,3 +13,6 @@ current_likeability = [50]
 
 # 显示对话时间
 show_dialog_time = [0]
+
+# 测试版本(0)默认读取设定.txt，发布版本(1)默认读取设定2.txt
+app_environment = [1]

@@ -1,7 +1,7 @@
 # AnyChatbot
 ## 蓝奏云下载地址
 ```
-https://wwauw.lanzouu.com/i2hgo3hluhxc
+https://wwauw.lanzouu.com/iybla3i8qhyh
 ```
 ## 项目交流群
 QQ群
@@ -17,5 +17,15 @@ QQ群
 ## 待实现的目标
 * 优化与bot的聊天体验(此项很大程度上取决于模型本身能力)
 * 优化bot的长期记忆能力
+
+## 2026/02/10
+## 版本1.1.0
+1.‘其它设置’中增加了’好感度模式’，勾选’好感度模式’后，在每次对话后会显示助理对你的好感度
+
+2.‘其它设置’中增加了’显示对话时间’，勾选’显示对话时间’后，会显示助理给你答复的具体时间
+
+3.增强了bot的长期记忆能力，对类似于’几天前做了什么事’的问题能做出比较合理的回复
+
+4.观察到使用RAG总结一些重要信息时，embedding的字符串不大恰当，现在embedding的字符串会更加合理
 
 ![聊天](https://github.com/zhouajiew/AnyChatbot/blob/main/WebUI/%E8%81%8A%E5%A4%A9.png?raw=true)

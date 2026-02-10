@@ -570,10 +570,7 @@ def generate_important_info(who, important_info, query_embedding, time_span):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if current_assistant[0] == "Bandit":
-            if who == "摆烂Jo":
-                original_appearance = f"{timestamp} Now {current_assistant[0]} wears sweaty short white socks which haven't been washed for a long time, wears blue slippers, wears grey underpants, other body parts stay exposed."
-            else:
-                original_appearance = f"{timestamp} Now {current_assistant[0]} wears dry short old but clean white socks, these socks have the smell of laundry detergent, wears white short shirt and grey short pants, wears grey sneakers."
+            # hide
         else:
             original_appearance = f"{timestamp} {current_assistant[0]}'s appearance is unknown!"
 

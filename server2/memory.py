@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from deepseek import *
 from rag import *
-from global_variable import current_assistant
+from global_variable import *
 
 # 所有任务
 all_tasks = []
@@ -244,6 +244,9 @@ def generate_important_info_in_group(who, important_info, query_embedding):
     # 人物关系
     relationships = []
 
+    # 用户的基本信息
+    base_info = []
+
     # 去掉所有的(符合标准x)
     def delete_standard(content):
         pattern = r'\(符合标准\d+\)'
@@ -289,6 +292,9 @@ def generate_important_info_in_group(who, important_info, query_embedding):
         if i["type"] == "人物关系":
             i["content"] = delete_standard(i["content"])
             relationships.append(i["content"])
+        if i["type"] == "基本信息":
+            i["content"] = delete_standard(i["content"])
+            base_info.append(i["content"])
 
     # 从rag2文件中获取概括
     rag_type1 = []
@@ -368,6 +374,12 @@ def generate_important_info_in_group(who, important_info, query_embedding):
     if len(temp_relationships) > 10:
         temp_relationships = temp_relationships[-10:]
 
+    # 去除重复的用户的基本信息
+    temp_base_info = list(dict.fromkeys(base_info))
+    # 取最新的10个
+    if len(temp_base_info) > 10:
+        temp_base_info = temp_base_info[-10:]
+
     def generate_content(temp_type):
         temp_content = ""
         for idx, t in enumerate(temp_type):
@@ -385,8 +397,11 @@ def generate_important_info_in_group(who, important_info, query_embedding):
     type8_content = generate_content(temp_type8)
 
     relationships_content = generate_content(temp_relationships)
+    base_info_content = generate_content(temp_base_info)
 
     temp = []
+    if len(base_info_content) > 0:
+        temp.append(f"*用户的基本信息:{base_info_content}\n")
     if len(relationships_content) > 0:
         temp.append(f"*用户与其它人物的关系:{relationships_content}\n")
     if len(temp_type1) > 0:
@@ -462,6 +477,9 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
     # 人物关系
     relationships = []
+
+    # 用户的基本信息
+    base_info = []
 
     # 去掉所有的(符合标准x)
     def delete_standard(content):
@@ -552,9 +570,15 @@ def generate_important_info(who, important_info, query_embedding, time_span):
         if i["type"] == "当前环境":
             i["content"] = delete_standard(i["content"])
             current_environment = i["content"]
+            pattern = r'([\s\S]*\.)\s*\(环境变化\)\s*'
+            if re.search(pattern, current_environment):
+                current_environment = re.search(pattern, current_environment).group(1)
         if i["type"] == "人物关系":
             i["content"] = delete_standard(i["content"])
             relationships.append(i["content"])
+        if i["type"] == "基本信息":
+            i["content"] = delete_standard(i["content"])
+            base_info.append(i["content"])
 
     if current_environment == "":
         current_environment = f"Now the user and {current_assistant[0]} are at the user's house, this place is quiet and no one will bother you."
@@ -570,7 +594,10 @@ def generate_important_info(who, important_info, query_embedding, time_span):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if current_assistant[0] == "Bandit":
-            # hide
+            if who == "摆烂Jo":
+                original_appearance = f"{timestamp} Now {current_assistant[0]} wears sweaty short white socks which haven't been washed for a long time, wears blue slippers, wears grey underpants, other body parts stay exposed."
+            else:
+                original_appearance = f"{timestamp} Now {current_assistant[0]} wears dry short old but clean white socks, these socks have the smell of laundry detergent, wears white short shirt and grey short pants, wears grey sneakers."
         else:
             original_appearance = f"{timestamp} {current_assistant[0]}'s appearance is unknown!"
 
@@ -1130,41 +1157,41 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
     for idx, i in enumerate(important_info_type5):
         if '已兑现' in i:
-            pattern = rf'({current_assistant[0]} [\s\S]*)\.\s*[(（]已兑现[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]已兑现[)）]'
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2:
                         delete_index[idx2] = 1
         if '不需要兑现' in i:
-            pattern = rf'({current_assistant[0]} [\s\S]*)\.\s*[(（]不需要兑现[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]不需要兑现[)）]'
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2:
                         delete_index[idx2] = 1
         if '无法兑现' in i:
-            pattern = rf'{current_assistant[0]} ([\s\S]*)\.\s*[(（]无法兑现[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]无法兑现[)）]'
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2:
                         delete_index[idx2] = 1
         # '兑现中'的承诺去除'未兑现'的承诺
         if '兑现中' in i:
-            pattern = rf'({current_assistant[0]} [\s\S]*)\.\s*[(（]兑现中[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]兑现中[)）]'
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2 and '未兑现' in i2:
                         delete_index[idx2] = 1
 
         # 去除重复的'未兑现'承诺
         if '未兑现' in i:
-            pattern = rf'{current_assistant[0]} ([\s\S]*)\.\s*[(（]未兑现[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]未兑现[)）]'
             index_list = []
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2 and '未兑现' in i2:
                         index_list.append(idx2)
@@ -1176,10 +1203,10 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
         # 去除重复的'兑现中'承诺
         if '兑现中' in i:
-            pattern = rf'{current_assistant[0]} ([\s\S]*)\.\s*[(（]兑现中[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]兑现中[)）]'
             index_list = []
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2 and '兑现中' in i2:
                         index_list.append(idx2)
@@ -1191,10 +1218,10 @@ def generate_important_info(who, important_info, query_embedding, time_span):
 
         # 去除重复的'无法兑现'承诺
         if '无法兑现' in i:
-            pattern = rf'{current_assistant[0]} ([\s\S]*)\.\s*[(（]无法兑现[)）]'
+            pattern = rf'(promise|promises) ([\s\S]*)\.\s*[(（]无法兑现[)）]'
             index_list = []
             if re.search(pattern, i):
-                promise = re.search(pattern, i).group(1)
+                promise = re.search(pattern, i).group(2)
                 for idx2, i2 in enumerate(important_info_type5):
                     if promise in i2 and '无法兑现' in i2:
                         index_list.append(idx2)
@@ -1290,6 +1317,12 @@ def generate_important_info(who, important_info, query_embedding, time_span):
     if len(temp_relationships) > 10:
         temp_relationships = temp_relationships[-10:]
 
+    # 去除重复的用户的基本信息
+    temp_base_info = list(dict.fromkeys(base_info))
+    # 取最新的10个
+    if len(temp_base_info) > 10:
+        temp_base_info = temp_base_info[-10:]
+
     def generate_content(temp_type):
         temp_content = ""
         for idx, t in enumerate(temp_type):
@@ -1321,11 +1354,14 @@ def generate_important_info(who, important_info, query_embedding, time_span):
     rag_type2_content = re.sub(pattern, r'',rag_type2_content)
 
     relationships_content = generate_content(temp_relationships)
+    base_info_content = generate_content(temp_base_info)
 
     temp = []
     temp_important_info_list = []
     if len(current_environment) > 0:
         temp.append(f"*当前环境:{current_environment}\n")
+    if len(base_info_content) > 0:
+        temp.append(f"*用户的基本信息:{base_info_content}\n")
     if len(relationships_content) > 0:
         temp.append(f"*用户与其它人物的关系:{relationships_content}\n")
     if len(temp_type1) > 0:
@@ -1436,9 +1472,49 @@ def get_important_info(who):
         os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
         return {}
 
+
+# 重要信息处理
+def handle_important_info_prompt(sentence_a, sentence_b):
+    important_info_prompt_str = f'''你是一个善于处理信息的助手，请按照'处理规则'输出合适的内容
+# 处理规则
+我会给你提供两个句子，分别为'句子A'和'句子B'
+规则1. 如果'句子A'与'句子B'表达的意思相反，直接输出'句子B'的内容
+规则2. 如果'句子A'是对'句子B'的扩写，直接输出'句子A'的内容
+规则3. 如果'句子B'是对'句子A'的扩写，直接输出'句子B'的内容
+规则4. 如果无法按照规则1-3处理，你应当尝试将'句子A'和'句子B'合并为一句更完整的话，然后输出这句话
+
+# 输出示例
+1.(符合规则4的情况)
+句子A: I like dogs.
+句子B: I don't like dogs.
+你的输出: I don't like dogs.
+2.(符合规则1的情况)
+句子A: I like cats because they are cute.
+句子B: I like cats.
+你的输出: I like cats because they are cute.
+3.(符合规则2的情况)
+句子A: I like dogs.
+句子B: I like dogs because they are loyal.
+你的输出: I like dogs because they are loyal.
+4.(符合规则3的情况)
+句子A: I like cats.
+句子B: I like dogs.
+你的输出: I like cats and dogs.
+
+# 我给你提供的句子
+句子A: {sentence_a}
+句子B: {sentence_b}'''
+
+    return important_info_prompt_str
+
 # 重要信息处理，到json文件
 def get_important_info_and_rewrite2(who, translation, assistant):
     global last_translation
+
+    # 修改还是写入
+    change_rag2 = False
+    change_rag4 = False
+
     # 防止重复记录translation
     if last_translation != translation:
         last_translation = translation
@@ -1463,7 +1539,7 @@ def get_important_info_and_rewrite2(who, translation, assistant):
             os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
 
         words_list = ['标准1', '标准3', '标准4']
-        words_list2 = ['标准10', '标准11', '标准12', '标准13', '标准14']
+        words_list2 = ['标准10', '标准11', '标准12', '标准13', '标准14', '标准15']
 
         type = ""
 
@@ -1513,12 +1589,74 @@ def get_important_info_and_rewrite2(who, translation, assistant):
                             t_part = timestamp + f" {t_part}"
 
                         type = "概括"
-                        temp_info = {"content": t_part, "type": type}
-                        important_info.append(temp_info)
-
                         # print("该translation被直接归类为'概括'并记录到重要信息中。\n")
 
                         embedding = get_query_embedding(embedding_part)
+
+                        # 从rag2.json中查找与embedding_part最相关的内容
+                        rag_results = search_from_rag_json2(user_name[0], embedding)
+                        best_match_info = {}
+                        delete_content = ""
+
+                        if len(rag_results) > 0:
+                            best_match_info = rag_results[0]
+                        else:
+                            temp_info = {"content": t_part, "type": type}
+                            important_info.append(temp_info)
+
+                        if best_match_info.get('score'):
+                            temp_score = best_match_info.get('score')
+
+                            temp_content = ""
+                            temp_index = -1
+                            if temp_score > 0.85:
+                                if best_match_info.get('content'):
+                                    temp_content = best_match_info.get('content')
+                                    delete_content = temp_content
+                                    for idx, i in enumerate(important_info):
+                                        if i.get('content'):
+                                            i_content = i.get('content')
+                                            if temp_content == i_content:
+                                                temp_index = idx
+                                                break
+
+                                    pattern = r'([\s\S]*\.)\s*\(重要程度[\s\S]*\)'
+                                    if re.search(pattern, temp_content):
+                                        temp_content = re.search(pattern, temp_content).group(1)
+
+                                        temp_prompt = handle_important_info_prompt(temp_content, embedding_part)
+                                        temp_messages = [{"role": "user", "content": temp_prompt}]
+                                        result = get_ai_response2("deepseek-chat", temp_messages, who)
+
+                                        with open(f"{relative_path}/handle_important_info.txt", "w", encoding='utf-8') as file:
+                                            full_content = f'completion_tokens:{result["completion_tokens"]}\nprompt_cache_hit_tokens:{result["prompt_cache_hit_tokens"]}\nprompt_cache_miss_tokens:{result["prompt_cache_miss_tokens"]}\n\n本次请求消费{result["cost"]}元\n\n{result['content']}'
+                                            file.write(full_content)
+
+                                        if result.get('content'):
+                                            temp_reply = result['content']
+                                            if temp_reply == temp_content:
+                                                print("原先记录的信息更完整，不进行处理!\n")
+
+                                                return 0
+                                            # 结果和embedding_part一样，要去掉重要信息.json和rag2.json中的这条记录
+                                            # 合并了这条记录，也要去掉重要信息.json和rag2.json中的这条记录
+                                            if temp_reply == embedding_part or (temp_reply != temp_content and temp_reply != embedding_part):
+                                                change_rag2 = True
+                                                temp_important_info = []
+                                                if temp_index != -1:
+                                                    for idx, i in enumerate(important_info):
+                                                        if idx != temp_index:
+                                                            temp_important_info.append(i)
+
+                                                important_info = temp_important_info[:]
+
+                                                temp_info = {"content": t_part, "type": type}
+                                                important_info.append(temp_info)
+
+                            # 语义相似度不高的话，直接添加
+                            else:
+                                temp_info = {"content": t_part, "type": type}
+                                important_info.append(temp_info)
 
                         if embedding:
                             rag_dic = {
@@ -1526,6 +1664,38 @@ def get_important_info_and_rewrite2(who, translation, assistant):
                                 "embedding": embedding
                             }
                             write_in_rag2(who, rag_dic)
+
+                            if change_rag2:
+                                path = f"{relative_path}/private/{who}/rag2({current_assistant[0]}).json"
+
+                                original_data = []
+
+                                if os.path.exists(path):
+                                    try:
+                                        original_data = read_json_file(path)
+                                    except Exception as e:
+                                        print(f"读取{who}的rag2({current_assistant[0]}).json文件失败!\n")
+                                        pass
+                                else:
+                                    os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
+
+                                temp_data = []
+                                for o in original_data:
+                                    if o.get('content'):
+                                        o_content = o.get('content')
+                                        if o_content != delete_content:
+                                            temp_data.append(o)
+
+                                original_data = temp_data[:]
+
+                                rag_num = len(original_data)
+
+                                with open(path, 'w', encoding='utf-8') as file:
+                                    # indent=1 每个层级缩进1个空格
+                                    file.write(json.dumps(original_data, indent=1, ensure_ascii=False))
+
+                                print(f"修改{who}的rag2({current_assistant[0]}).json文件成功!\n")
+                                print(f"当前概括的rag数量为{rag_num}\n")
 
             # 包含'今天'的translation直接归类为'今天做了什么事'
             if '今天' in t_part:
@@ -1690,6 +1860,129 @@ def get_important_info_and_rewrite2(who, translation, assistant):
 
                 # print("translation包含'标准14'，直接归类为'人物关系'并记录到重要信息中。\n")
 
+            # 包含'标准15'(基本信息)
+            if '标准15' in t_part:
+                type = "基本信息"
+
+                temp_info = {"content": t_part, "type": type}
+                important_info.append(temp_info)
+
+                # print("translation包含'标准15'，直接归类为'基本信息'并记录到重要信息中。\n")
+
+                embedding_part = t_part
+                pattern = r'([\s\S]*\.)\s*\(符合标准[\s\S]*\)'
+                if re.search(pattern, t_part):
+                    embedding_part = re.search(pattern, t_part).group(1)
+
+                # 不用加时间标签
+
+                embedding = get_query_embedding(embedding_part)
+
+                # 从rag4.json中查找与embedding_part最相关的内容
+                rag_results = search_from_rag_json4(user_name[0], embedding)
+                best_match_info = {}
+                delete_content = ""
+
+                if len(rag_results) > 0:
+                    best_match_info = rag_results[0]
+                else:
+                    temp_info = {"content": t_part, "type": type}
+                    important_info.append(temp_info)
+
+                if best_match_info.get('score'):
+                    temp_score = best_match_info.get('score')
+
+                    temp_content = ""
+                    temp_index = -1
+                    if temp_score > 0.85:
+                        if best_match_info.get('content'):
+                            temp_content = best_match_info.get('content')
+                            delete_content = temp_content
+                            for idx, i in enumerate(important_info):
+                                if i.get('content'):
+                                    i_content = i.get('content')
+                                    if temp_content == i_content:
+                                        temp_index = idx
+                                        break
+
+                            pattern = r'([\s\S]*\.)\s*\(符合标准[\s\S]*\)'
+                            if re.search(pattern, temp_content):
+                                temp_content = re.search(pattern, temp_content).group(1)
+
+                                temp_prompt = handle_important_info_prompt(temp_content, embedding_part)
+                                temp_messages = [{"role": "user", "content": temp_prompt}]
+                                result = get_ai_response2("deepseek-chat", temp_messages, who)
+
+                                with open(f"{relative_path}/handle_important_info2.txt", "w", encoding='utf-8') as file:
+                                    full_content = f'completion_tokens:{result["completion_tokens"]}\nprompt_cache_hit_tokens:{result["prompt_cache_hit_tokens"]}\nprompt_cache_miss_tokens:{result["prompt_cache_miss_tokens"]}\n\n本次请求消费{result["cost"]}元\n\n{result['content']}'
+                                    file.write(full_content)
+
+                                if result.get('content'):
+                                    temp_reply = result['content']
+                                    if temp_reply == temp_content:
+                                        print("原先记录的信息更完整，不进行处理!\n")
+
+                                        return 0
+                                    # 结果和embedding_part一样，要去掉重要信息.json和rag2.json中的这条记录
+                                    # 合并了这条记录，也要去掉重要信息.json和rag2.json中的这条记录
+                                    if temp_reply == embedding_part or (
+                                            temp_reply != temp_content and temp_reply != embedding_part):
+                                        change_rag4 = True
+                                        temp_important_info = []
+                                        if temp_index != -1:
+                                            for idx, i in enumerate(important_info):
+                                                if idx != temp_index:
+                                                    temp_important_info.append(i)
+
+                                        important_info = temp_important_info[:]
+
+                                        temp_info = {"content": t_part, "type": type}
+                                        important_info.append(temp_info)
+
+                    # 语义相似度不高的话，直接添加
+                    else:
+                        temp_info = {"content": t_part, "type": type}
+                        important_info.append(temp_info)
+
+                if embedding:
+                    rag_dic = {
+                        "content": t_part,
+                        "embedding": embedding
+                    }
+                    write_in_rag4(who, rag_dic)
+
+                    if change_rag4:
+                        path = f"{relative_path}/private/{who}/rag4({current_assistant[0]}).json"
+
+                        original_data = []
+
+                        if os.path.exists(path):
+                            try:
+                                original_data = read_json_file(path)
+                            except Exception as e:
+                                print(f"读取{who}的rag4({current_assistant[0]}).json文件失败!\n")
+                                pass
+                        else:
+                            os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
+
+                        temp_data = []
+                        for o in original_data:
+                            if o.get('content'):
+                                o_content = o.get('content')
+                                if o_content != delete_content:
+                                    temp_data.append(o)
+
+                        original_data = temp_data[:]
+
+                        rag_num = len(original_data)
+
+                        with open(path, 'w', encoding='utf-8') as file:
+                            # indent=1 每个层级缩进1个空格
+                            file.write(json.dumps(original_data, indent=1, ensure_ascii=False))
+
+                        print(f"修改{who}的rag4({current_assistant[0]}).json文件成功!\n")
+                        print(f"当前用户的基本信息的rag数量为{rag_num}\n")
+
             # 需要兑现的承诺
             if '兑现' in t_part:
                 type = "需要兑现的承诺"
@@ -1750,8 +2043,12 @@ def get_important_info_and_rewrite2(who, translation, assistant):
             # indent=1 每个层级缩进1个空格
             file.write(json.dumps(important_info, indent=1, ensure_ascii=False))
 
-        print(f"写入{who}的重要信息({current_assistant[0]}).json文件成功!\n")
-        print(f"关于{who}的重要信息数量为{len(important_info)}\n")
+        if not change_rag2 and not change_rag4:
+            print(f"写入{who}的重要信息({current_assistant[0]}).json文件成功!\n")
+            print(f"关于{who}的重要信息数量为{len(important_info)}\n")
+        else:
+            print(f"修改{who}的重要信息({current_assistant[0]}).json文件成功!\n")
+            print(f"关于{who}的重要信息数量为{len(important_info)}\n")
 
     else:
         print("获取到的translation和上次相同，不进行处理!\n")

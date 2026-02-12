@@ -58,11 +58,13 @@ var enable_likeability = 0;
 // 显示对话时间
 var show_dialog_time = 0;
 
+/*
 if (process.env.NODE_ENV === "development") {
     current_environment = 1;
 } else {
     current_environment = 2;
 }
+*/
 
 const socket = io.connect('http://127.0.0.1:5005');
 
@@ -515,7 +517,7 @@ function MainInfoAssistantMsg({data,imageUrl}){
       </div>
       <div >
         <div className='flex'>
-          <div style={{whiteSpace:'pre-wrap'}} className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
+          <div style={{whiteSpace:'pre-wrap'}} id={`assistant${data.temp_id.replace(/msg/,"")}`} className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
             {show_dialog_time === 1 && 'timestamp' in messages[data.index] ? `${assistant_name}   ${messages[data.index]['timestamp']}` : assistant_name}
           </div>
           <div style={{fontFamily:'Hello Headline'}} id={`likeability${data.temp_id.replace(/msg/,"")}`} className={data.index !== 0 ? 'ml-4 mt-4' : 'ml-4'}>
@@ -657,8 +659,7 @@ function MainInfo(type){
       var hc = null;
       // 防止频繁触发记忆获取
       var cant_get_memories_now = false;
-      
-      already_get_all_memories = false;
+ 
       function handleMsgs(){
         // 持续接收消息
         if (message_interval < 0){
@@ -684,7 +685,7 @@ function MainInfo(type){
               }
             }
 
-            if (messages.length > current_messages_length){
+            if (messages.length !== current_messages_length){
               current_messages_length = messages.length;
               console.log('现在的消息数为:'+messages.length.toString());
               var m = [];
@@ -1552,10 +1553,18 @@ function SendArea(){
       var s = document.getElementById("send_area");
       var msg = s.value;
       if (msg.length > 0){
-        messages.push({"role":"user","content":msg});
+        if (messages[0]['content'] === 'Hi mate! What can I do for you?' && messages[0]['role'] === 'assistant'){
+          messages = [];
+          setTimeout(() => {
+            messages.push({"role":"user","content":msg});
+          }, 200);
+        }
+        else{
+          messages.push({"role":"user","content":msg});
+        }
         is_history_msgs = false ;
 
-        socket.emit('get_api_response', messages[messages.length - 1]["content"]);
+        socket.emit('get_api_response', msg);
         if (!get_onetime_response){
           get_onetime_response = true;
           socket.once('merge_result', function(msg) {
@@ -1582,6 +1591,7 @@ function SendArea(){
           });
           if (enable_likeability === 1){
             socket.once('likeability', function(msg) {
+              messages[messages.length - 1]["likeability"] = msg;
               var m = document.getElementById('likeability'+(messages.length - 1).toString());
               m.innerHTML = `🧡${msg}`;
             });
@@ -1593,6 +1603,16 @@ function SendArea(){
             var m = document.getElementById('msg'+(messages.length - 1).toString());
             if (m != null){
               m.innerHTML = messages[messages.length - 1]["content"];
+            }
+            if (show_dialog_time === 1){
+              var now = new Date();
+              var current_time = now.toLocaleString();
+              current_time = current_time.replaceAll(/\//g,"-");    
+              messages[messages.length - 1]['timestamp'] = current_time;
+                var m = document.getElementById('assistant'+(messages.length - 1).toString());
+                if (m != null){
+                  m.innerHTML = `${assistant_name}   ${current_time}`;
+                }                    
             }
             
               var i2 = setInterval(() => {

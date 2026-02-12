@@ -81,6 +81,40 @@ def get_query_embedding(input):
 
     return query_embedding
 
+# 搜索rag4文件
+def search_from_rag_json4(who, query_embedding):
+    path = f"{relative_path}/private/{who}/rag4({current_assistant[0]}).json"
+
+    original_data = []
+    new_data = []
+
+    if os.path.exists(path):
+        try:
+            original_data = read_json_file(path)
+        except Exception as e:
+            print(f"读取{who}的rag4({current_assistant[0]}).json文件失败!\n")
+            pass
+    else:
+        os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
+        # 打开文件，以写入模式创建文件对象
+        with open(f'{relative_path}/private/{who}/rag4({current_assistant[0]}).json', 'w', encoding='utf-8') as file:
+            # indent=1 每个层级缩进1个空格
+            file.write(json.dumps([], indent=1, ensure_ascii=False))
+
+    for o in original_data:
+        o_embedding = o.get("embedding")
+        s = _cosine_similarity(query_embedding, o_embedding)
+
+        new_data.append({
+            "content":o.get("content"),
+            'timestamp':o.get('timestamp'),
+            "score":s
+        })
+
+    new_data.sort(key=lambda x: x["score"], reverse=True)
+
+    return new_data
+
 # 搜索rag3文件
 def search_from_rag_json3(who, query_embedding):
     path = f"{relative_path}/private/{who}/rag3({current_assistant[0]}).json"
@@ -114,7 +148,6 @@ def search_from_rag_json3(who, query_embedding):
     new_data.sort(key=lambda x: x["score"], reverse=True)
 
     return new_data
-
 
 # 搜索rag2文件
 def search_from_rag_json2(who, query_embedding):
@@ -184,6 +217,36 @@ def search_from_rag_json(who, query_embedding):
     new_data.sort(key=lambda x: x["score"], reverse=True)
 
     return new_data
+
+# 将用户的基本信息写入到rag4中
+def write_in_rag4(who, data):
+    path = f"{relative_path}/private/{who}/rag4({current_assistant[0]}).json"
+
+    original_data = []
+
+    if os.path.exists(path):
+        try:
+            original_data = read_json_file(path)
+        except Exception as e:
+            print(f"读取{who}的rag4({current_assistant[0]}).json文件失败!\n")
+            pass
+    else:
+        os.makedirs(f"{relative_path}/private/{who}", exist_ok=True)
+
+    original_data.append(data)
+
+    # 考虑到不应让文件太大，只取最新5000条
+    if len(original_data) > 5000:
+        original_data = original_data[-5000:]
+
+    rag_num = len(original_data)
+
+    with open(path, 'w', encoding='utf-8') as file:
+        # indent=1 每个层级缩进1个空格
+        file.write(json.dumps(original_data, indent=1, ensure_ascii=False))
+
+    print(f"写入{who}的rag4({current_assistant[0]}).json文件成功!\n")
+    print(f"当前用户的基本信息的rag数量为{rag_num}\n")
 
 # 将重要信息的概括写入到rag3中
 def write_in_rag3(who, data):

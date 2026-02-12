@@ -1,44 +1,15 @@
 import asyncio
 import json
-import math
 import os
-import random
 import re
+import sys
 import threading
 import time
-from datetime import datetime
-from time import sleep
 
-from flask_socketio import SocketIO, send
-from flask import Flask, render_template, jsonify
+import requests
+from openai import OpenAI, AsyncOpenAI
 
-from config import *
-from memory import *
-from rag import *
-from message import *
-from prompt import *
-
-from global_variable import *
-
-already_get_character1 = False
-
-character1 = ""
-character2 = ""
-
-# 获取到的人设prompt
-custom_prompt = ""
-
-# 所有的新消息
-new_messages_list = []
-
-private_message_count = 0
-
-max_context = 0
-
-context_list = []
-
-# 最新外在形象的时间(防止反复询问)
-latest_appearance_time = {}
+from global_variable import api_key
 
 # 获取当前文件所在的目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -46,556 +17,461 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # 构建相对路径
 relative_path = os.path.join(current_dir)
 
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+# 查询余额(放入线程中执行更好)
+def balances_info():
+    url = "https://api.deepseek.com/user/balance"
 
-@socketio.on('c')
-def client_connected():
-    print('Client connected')
-    init_config()
-    read_config()
-    if enable_likeability[0] == 1:
-        current_likeability[0] = get_likeability(user_name[0])
+    payload = {}
+    headers = {
+        'Accept': 'application/json',
+        'Authorization': f'Bearer {api_key[0]}'
+    }
 
-@socketio.on('save_character2')
-def save_character2(message):
-    global custom_prompt
+    response = None
+    try:
+        # 有时候会卡在这里，需要设置超时时间
+        response = requests.request("GET", url, headers=headers, data=payload, timeout=10)
+        info = json.loads(response.text)
+        print(f"总的可用余额为:{info.get("balance_infos")[0].get("total_balance")}元\n")
+    except requests.exceptions.Timeout:
+        print('查询余额的请求超时!\n')
+    except requests.exceptions.RequestException as e:
+        print(f"查询余额的请求发生错误: {e}\n")
 
-    print('保存自定义人设请求')
-    if current_assistant[0] != "Bandit":
-        custom_prompt = message
-        path = f'{relative_path}/设定({current_assistant[0]}).txt'
+# 示例对话
+def example_context():
+    example_str = "**\n"
+    example_str += "用户的消息:Hi dad!\n"
+    example_str += "你的回复:G'day Jo! (looks up from newspaper with a playful grin) Calling me dad again? (shakes head laughing) Reckon you're stuck on that nickname worse than gum on a shoe! (sets paper aside) What mischief are we cooking up today, mate?\n"
+    example_str += "用户的消息:I just love calling u dad! (Grins)\n"
+    example_str += f"你的回复:(Chuckles warmly while folding newspaper) Fair dinkum, you're more stubborn about this than Bingo with her blankie! (Leans forward with mock seriousness) But if calling me dad makes you happy... (shrugs with a grin) who am I to argue with my favorite bloke? So - what's the plan, chief?"
+    example_str += "用户的消息:Oh dad, how about going outside to order pure milk tea?\n"
+    example_str += f"你的回复:(immediately springs up from couch) Pure milk tea? (rubs hands together excitedly) Mate, you're speaking my language! (grabs keys) Though fair warning... (winks) I might need you to carry me if my feet get tired from all that walking."
 
-        # 打开文件，以写入模式创建文件对象
-        with open(path, 'w', encoding='utf-8') as file:
-            file.write(message)
+    return example_str
 
-        print(f"写入设定({current_assistant[0]}).txt文件成功!\n")
+# 管理上下文
+def manage_context(max_context, context, fixed_context_length):
+    new_context = []
+    # 取固定上下文+最后2*max_context段对话
+    if max_context != 0:
+        new_context = context[:fixed_context_length] + context[-2*max_context:]
     else:
-        print('不修改默认人设')
+        new_context = context[:fixed_context_length]
 
-@socketio.on('save_config')
-def save_config(message):
-    print('保存设置请求')
-    data = json.loads(message)
-    set_config(data)
+    print(f"上下文更新完毕，保留了{max_context}轮上下文对话\n")
 
-@socketio.on('get_api_response')
-def get_api_response(message):
-    new_messages_list.append(message)
-    print('获取API回复请求')
+    return new_context
 
-@socketio.on('get_memories')
-def get_memories(message):
-    if user_name[0] == "default":
-        sleep(0.1)
+# 提取流式输出的Tokens相关信息(doubao)
+def get_tokens_info2(last_chunk_content):
+    tokens_list = {}
 
-    print('获取记忆请求')
-    data = json.loads(message)
-    count = data[0].get('count')
-    #print(f'count:{count}')
-    memories = get_latest_memories(user_name[0])
-    #print(f'获取到的记忆数量:{len(memories)}')
-    temp_memories = []
+    try:
+        pattern = r'completion_tokens=(\d+),'
+        temp_completion_tokens = re.search(pattern, last_chunk_content).group(1)
+        tokens_list["completion_tokens"] = temp_completion_tokens
 
-    num = 5
+        pattern = r'prompt_tokens=(\d+),'
+        temp_prompt_tokens = re.search(pattern, last_chunk_content).group(1)
+        tokens_list["prompt_tokens"] = temp_prompt_tokens
 
-    if count > math.ceil(len(memories) / num):
-        socketio.emit("memories", [])
-    else:
-        if num * count < len(memories):
-            #print(f'{len(memories) - num * count}:{len(memories) - num * (count - 1)}')
-            temp_memories = memories[len(memories) - num * count:len(memories) - num * (count - 1)]
-        else:
-            #print(f'0:{len(memories) - num * (count - 1)}')
-            temp_memories = memories[:len(memories) - num * (count - 1)]
+        return tokens_list
 
-        #print(temp_memories)
-        socketio.emit("memories", temp_memories)
+    except Exception as e:
+        print(f"提取流式输出的Tokens相关信息失败!{e}")
+        return None
 
+# 提取流式输出的Tokens相关信息(deepseek)
+def get_tokens_info(last_chunk_content):
+    tokens_list = {}
 
-@socketio.on('message')
-def handle_message(message):
-    global character1
-    global character2
+    try:
+        pattern = r'completion_tokens=(\d+),'
+        temp_completion_tokens = re.search(pattern, last_chunk_content).group(1)
+        tokens_list["completion_tokens"] = temp_completion_tokens
 
-    if message == "get_default_character":
-        print('获取默认人设请求')
-        get_default_character()
-        socketio.emit("character", character1)
-    if message == "get_character2":
-        print('获取自定义人设请求')
-        get_character2()
-        if len(character2) > 0:
-            socketio.emit("character2", character2)
-        else:
-            socketio.emit("character2", 'No data!')
-    if message == "get_config":
-        print('获取模型设置请求')
-        data = read_config()
-        if data:
-            json_str = json.dumps(data)
-            socketio.emit("config", json_str)
+        pattern = r'prompt_cache_hit_tokens=(\d+),'
+        temp_prompt_cache_hit_tokens = re.search(pattern, last_chunk_content).group(1)
+        tokens_list["prompt_cache_hit_tokens"] = temp_prompt_cache_hit_tokens
 
-@app.route('/index')
-def index():
-    return render_template('index.html',
-                          title='Flask Template',
-                          name='摆烂Jo',
-                          messages=["0", "0"])
+        pattern = r'prompt_cache_miss_tokens=(\d+)\)'
+        temp_prompt_cache_miss_tokens = re.search(pattern, last_chunk_content).group(1)
+        tokens_list["prompt_cache_miss_tokens"] = temp_prompt_cache_miss_tokens
 
-def get_character2():
-    global character2
+        return tokens_list
 
-    path = f'{relative_path}/设定({current_assistant[0]}).txt'
-    if os.path.exists(path):
-        try:
-            with open(f"{relative_path}/设定({current_assistant[0]}).txt", "r", encoding='utf-8') as file:
-                character2 = file.read()
-        except Exception as e:
-            print(f"读取设定({current_assistant[0]}).txt文件失败!")
-            pass
-    else:
-        character2 = ""
+    except Exception as e:
+        print(f"提取流式输出的Tokens相关信息失败!{e}")
+        return None
 
-def get_default_character():
-    global character1
-    global already_get_character1
-
-    if not already_get_character1:
-        if app_environment[0] == 0:
-            path = f'{relative_path}/设定.txt'
-            if os.path.exists(path):
-                try:
-                    with open(path, "r", encoding='utf-8') as file:
-                        character1 = file.read()
-                        return character1
-                except Exception as e:
-                    print(f"读取设定.txt文件失败!")
-                    pass
-        else:
-            path = f'{relative_path}/设定2.txt'
-            if os.path.exists(path):
-                try:
-                    with open(path, "r", encoding='utf-8') as file:
-                        character1 = file.read()
-                        return character1
-                except Exception as e:
-                    print(f"读取设定.txt文件失败!")
-                    pass
-    else:
-        return character1
-
-async def merge_msgs():
-    global new_messages_list
-    global private_message_count
-    global max_context
-    global latest_appearance_time
-
-    count = 0
-    # 合并的消息
-    merge_result = ""
-
-    for m in new_messages_list:
-        count += 1
-
+# 同步获取ai回复，非流式输出显示
+def get_ai_response2(model, messages, who):
     start_time = time.time()
 
-    if count != 0:
-        try:
-            end_time = time.time()
-            # 等待7秒
-            count2 = 0
-            while end_time - start_time < 7:
-                await asyncio.sleep(0.5)
-                end_time = time.time()
-                for m in new_messages_list:
-                    count2 += 1
-                if count2 > count:
-                    count = count2
-                    start_time = time.time()
-                count2 = 0
+    print(f"正在向deepseek发送关于{who}的请求")
+    print(f"请求的模型为{model}")
+    '''
+    print("请求内容为:\n")
+    for m in messages:
+        print(m)
+    '''
 
-            for idx, m in enumerate(new_messages_list):
-                merge_result = f"{merge_result} {m}"
+    response = None
 
-            new_messages_list = []
+    client = OpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
 
-            # 去掉开头的空格:
-            pattern = r' '
-            merge_result = re.sub(pattern, r'', merge_result, count=1)
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+    except Exception as e:
+        print(f"获取deepseek回复时出错!{e}")
 
-            print(f"消息合并结果:{merge_result}\n")
-            socketio.emit("merge_result", 'merge over!')
-        except Exception as e:
-            print(f"合并结果时出错:{e}")
+    reasoning_content = ""
 
+    if hasattr(response.choices[0].message, "reasoning_content"):
+        reasoning_content = response.choices[0].message.reasoning_content
+
+    content = response.choices[0].message.content
+
+    # print("\n思维链:\n" + reasoning_content)
+    # print("\n最终回复:\n" + content)
+
+    completion_tokens = 0
+    cache_hit_tokens = 0
+    cache_miss_tokens = 0
+    cost = 0
+
+    try:
+        completion_tokens = int(response.usage.completion_tokens)
+        cache_hit_tokens = int(response.usage.prompt_cache_hit_tokens)
+        cache_miss_tokens = int(response.usage.prompt_cache_miss_tokens)
+        # print("completion_tokens:" + str(response.usage.completion_tokens))
+        # print("prompt_cache_hit_tokens:" + str(response.usage.prompt_cache_hit_tokens))
+        # print("prompt_cache_miss_tokens:" + str(response.usage.prompt_cache_miss_tokens))
+    except Exception as e:
+        print(f"获取tokens相关信息失败!{e}\n")
+        pass
+
+    cost = (0.3 * cache_hit_tokens + 2 * cache_miss_tokens + 3 * completion_tokens) / 1000000
+
+    # print(f"本次请求消费{cost}元\n")
+
+    thread = threading.Thread(target=balances_info)
+    thread.start()
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    # print(f"本次请求执行时间为{total_time}s\n")
+
+    if reasoning_content != "":
+        return {"reasoning_content":reasoning_content, "content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
+    else:
+        return {"content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
+
+# 同步获取ai回复，流式输出回复
+def get_ai_response2_stream(model, messages, who):
+    start_time = time.time()
+
+    # print(f"正在向deepseek发送关于{who}的请求")
+    # print(f"请求的模型为{model}")
+
+    '''
+    print("请求内容为:\n")
+    for m in messages:
+        print(m)
+    '''
+
+    client = OpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        stream=True
+    )
+
+    completion_tokens = 0
+    cache_hit_tokens = 0
+    cache_miss_tokens = 0
+    cost = 0
+
+    reasoning_content = ""
+    content = ""
+
+    one_time = False
+    one_time2 = False
+
+    all_chunk = []
+
+    for chunk in response:
+        all_chunk.append(chunk)
+        # R1模型
+        if hasattr(chunk.choices[0].delta, "reasoning_content"):
+            if chunk.choices[0].delta.reasoning_content:
+                if chunk.choices[0].delta.reasoning_content:
+                    if not one_time:
+                        # print("\n思维链:")
+                        one_time = True
+
+                    reasoning_content += chunk.choices[0].delta.reasoning_content
+                    # sys.stdout.write(chunk.choices[0].delta.reasoning_content)
+                    # sys.stdout.flush()
+            else:
+                if chunk.choices[0].delta.content:
+                    if not one_time2:
+                        # print("\n\n最终回复:")
+                        one_time2 = True
+
+                    content += chunk.choices[0].delta.content
+                    # sys.stdout.write(chunk.choices[0].delta.content)
+                    # sys.stdout.flush()
+        # chat模型
+        else:
+            if chunk.choices[0].delta.content:
+                if not one_time2:
+                    # print("\n\n最终回复:")
+                    one_time2 = True
+
+            content += chunk.choices[0].delta.content
+            # sys.stdout.write(chunk.choices[0].delta.content)
+            # sys.stdout.flush()
+
+    last_chunk_content = str(all_chunk[-1:])
+
+    tokens_list = get_tokens_info(last_chunk_content)
+
+    if tokens_list:
+        completion_tokens = int(tokens_list["completion_tokens"])
+        cache_hit_tokens = int(tokens_list["prompt_cache_hit_tokens"])
+        cache_miss_tokens = int(tokens_list["prompt_cache_miss_tokens"])
+        # print(f"\n\ncompletion_tokens:{completion_tokens}")
+        # print(f"prompt_cache_hit_tokens:{cache_hit_tokens}")
+        # print(f"prompt_cache_miss_tokens:{cache_miss_tokens}\n")
+
+    cost = (0.3 * cache_hit_tokens + 2 * cache_miss_tokens + 3 * completion_tokens) / 1000000
+
+    # print(f"本次请求消费{cost}元\n")
+
+    '''
+    thread = threading.Thread(target=balances_info)
+    thread.start()
+    '''
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    # print(f"本次请求执行时间为{total_time}s\n")
+
+    if reasoning_content != "":
         '''
-        # 多事件引用判断(弃用，采用时间跨度提取)
-        event_prompt = many_events_needed_prompt(merge_result)
-        result = {}
-        many_events_needed = False
+        full_content = f'思维链:\n{reasoning_content}\n\n最终回复:{content}'
 
-        try:
-            event_prompt2 = [{"role": "user", "content": event_prompt}]
-
-            result = get_ai_response2_stream("deepseek-chat", event_prompt2, user_name[0])
-
-            pattern = r'是[,，]'
-            if re.search(pattern, result["content"]):
-                many_events_needed = True
-
-            with open(f"{relative_path}/many_events_needed.txt", "w", encoding='utf-8') as file:
-                full_content = f'completion_tokens:{result["completion_tokens"]}\nprompt_cache_hit_tokens:{result["prompt_cache_hit_tokens"]}\nprompt_cache_miss_tokens:{result["prompt_cache_miss_tokens"]}\n\n本次请求消费{result["cost"]}元\n\n{result["content"]}'
-                file.write(full_content)
-        except Exception as e:
-            print(f"获取多事件引用判断失败!{e}")
+        with open(f"{relative_path}/final_response.txt", "w", encoding='utf-8') as file:
+            file.write(full_content)
         '''
 
-        # 获取当前用户的最新记忆
-        memories = get_latest_memories(user_name[0])
-        # 时间跨度提取
-        time_span = get_time_span_prompt(merge_result, memories, 3, user_name[0])
+        return {"reasoning_content":reasoning_content, "content":content,
+                "cost":cost,
+                "completion_tokens":completion_tokens,
+                "prompt_cache_hit_tokens":cache_hit_tokens,
+                "prompt_cache_miss_tokens":cache_miss_tokens}
+    else:
+        '''
+        full_content = f'最终回复:{content}'
 
-        # 创建query的嵌入向量进行查询
-        rag_content = ""
-        query_embedding = None
-        try:
-            if len(merge_result) > 10:
-                print("正在查询语义相似的用户消息\n")
-                query_embedding = get_query_embedding(merge_result)
+        with open(f"{relative_path}/final_response.txt", "w", encoding='utf-8') as file:
+            file.write(full_content)
+        '''
 
-                # 查询rag.json
-                rag_results = search_from_rag_json(user_name[0], query_embedding)
-                rag_results = rag_results[:5]
-                rag_content = generate_rag_content(5, rag_results)
-        except Exception as e:
-            print(f"创建query的嵌入向量时出错:{e}")
+        return {"content":content,
+                "cost":cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens
+                }
 
-        # 获取AI回复
-        try:
-            read_config()
+# 异步获取ai回复，非流式输出显示
+async def get_ai_response(model, messages, who):
+    start_time = time.time()
 
-            private_message_count += 1
+    print(f"正在向deepseek发送关于{who}的请求")
+    print(f"请求的模型为{model}")
+    '''
+    print("请求内容为:\n")
+    for m in messages:
+        print(m)
+    '''
 
-            temp_context = []
+    response = None
 
-            history_prompt = generate_history_prompt(5)
-            history_content = generate_history_content(
-                5,
-                memories,
-                private_message_count,
-                max_context,
-            )
+    client = AsyncOpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
 
-            # 获取当前用户的重要信息
-            important_info = get_important_info(user_name[0])
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+    except Exception as e:
+        print(f"获取deepseek回复时出错!{e}")
 
-            # 当前用户的长下文长度
-            context_length = 0
+    reasoning_content = ""
 
-            # 获取当前用户的上下文
-            for c in context_list:
-                if c["who"] == user_name[0]:
-                    temp_context.append({"role": "user", "content": c["user_content"]})
-                    temp_context.append({"role": "assistant", "content": c["assistant_content"]})
-                    context_length += 2
+    if hasattr(response.choices[0].message, "reasoning_content"):
+        reasoning_content = response.choices[0].message.reasoning_content
 
-            # print(f"获取到{who}的上下文内容:")
-            '''
-            for t in temp_context:
-                if t["role"] == "user":
-                    print(f"用户的消息:{t["content"]}")
-                if t["role"] == "assistant":
-                    print(f"你的回复:{t["content"]}")
-            '''
+    content = response.choices[0].message.content
 
-            # 构造多轮对话
-            # 系统提示词
-            if custom_prompt == "":
-                context = [{"role": "system", "content": system_prompt(user_name[0])}]
+    # print("\n思维链:\n" + reasoning_content)
+    # print("\n最终回复:\n" + content)
+
+    completion_tokens = 0
+    cache_hit_tokens = 0
+    cache_miss_tokens = 0
+    cost = 0
+
+    try:
+        completion_tokens = int(response.usage.completion_tokens)
+        cache_hit_tokens = int(response.usage.prompt_cache_hit_tokens)
+        cache_miss_tokens = int(response.usage.prompt_cache_miss_tokens)
+        # print("completion_tokens:" + str(response.usage.completion_tokens))
+        # print("prompt_cache_hit_tokens:" + str(response.usage.prompt_cache_hit_tokens))
+        # print("prompt_cache_miss_tokens:" + str(response.usage.prompt_cache_miss_tokens))
+    except Exception as e:
+        print(f"获取tokens相关信息失败!{e}\n")
+        pass
+
+    cost = (0.3 * cache_hit_tokens + 2 * cache_miss_tokens + 3 * completion_tokens) / 1000000
+
+    # print(f"本次请求消费{cost}元\n")
+
+    thread = threading.Thread(target=balances_info)
+    thread.start()
+
+    end_time = time.time()
+    total_time = end_time - start_time
+    # print(f"本次请求执行时间为{total_time}s\n")
+
+    if reasoning_content != "":
+        return {"reasoning_content":reasoning_content, "content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
+    else:
+        return {"content":content,
+                "cost": cost,
+                "completion_tokens": completion_tokens,
+                "prompt_cache_hit_tokens": cache_hit_tokens,
+                "prompt_cache_miss_tokens": cache_miss_tokens}
+
+# 异步获取ai回复，流式输出显示
+async def get_ai_response_stream(model, messages, who):
+    start_time = time.time()
+
+    print(f"正在向deepseek发送关于{who}的请求")
+    print(f"请求的模型为{model}")
+
+    '''
+    print("请求内容为:\n")
+    for m in messages:
+        print(m)
+    '''
+
+    client = AsyncOpenAI(api_key=api_key[0], base_url="https://api.deepseek.com")
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            stream=True,
+        )
+    except Exception as e:
+        print(f"获取deepseek回复时出错!{e}")
+
+    completion_tokens = 0
+    cache_hit_tokens = 0
+    cache_miss_tokens = 0
+    cost = 0
+
+    reasoning_content = ""
+    content = ""
+
+    one_time = False
+    one_time2 = False
+
+    all_chunk = []
+
+    async for chunk in response:
+        all_chunk.append(chunk)
+        # R1模型
+        if hasattr(chunk.choices[0].delta, "reasoning_content"):
+            if chunk.choices[0].delta.reasoning_content:
+                if chunk.choices[0].delta.reasoning_content:
+                    if not one_time:
+                        print("\n思维链:")
+                        one_time = True
+
+                    reasoning_content += chunk.choices[0].delta.reasoning_content
+                    sys.stdout.write(chunk.choices[0].delta.reasoning_content)
+                    sys.stdout.flush()
             else:
-                context = [{"role": "system", "content": custom_prompt}]
+                if chunk.choices[0].delta.content:
+                    if not one_time2:
+                        print("\n\n最终回复:")
+                        one_time2 = True
 
-            # 固定内容数量
-            fixed_context_length = 0
+                    content += chunk.choices[0].delta.content
+                    sys.stdout.write(chunk.choices[0].delta.content)
+                    sys.stdout.flush()
+        # chat模型
+        else:
+            content += chunk.choices[0].delta.content
+            sys.stdout.write(chunk.choices[0].delta.content)
+            sys.stdout.flush()
 
-            '''
-            # 示例对话
-            example = example_prompt(who)
-            example += example_context()
-            context.append({"role": "user", "content": example})
-            context.append({"role": "assistant", "content": "Got it!"})
-            '''
+    last_chunk_content = str(all_chunk[-1:])
 
-            # 历史对话提示词
-            context.append({"role": "user", "content": history_prompt})
-            context.append({"role": "assistant", "content": "Got it!"})
-            # 历史对话内容(memory+rag)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            history_content = f"当前对话时间:{timestamp}\n\n以下是历史对话内容:\n**\n{history_content}\n\n"
+    tokens_list = get_tokens_info(last_chunk_content)
 
-            both_content = history_content + rag_content
-            # print(f"{both_content}\n")
+    if tokens_list:
+        completion_tokens = int(tokens_list["completion_tokens"])
+        cache_hit_tokens = int(tokens_list["prompt_cache_hit_tokens"])
+        cache_miss_tokens = int(tokens_list["prompt_cache_miss_tokens"])
+        # print(f"\n\ncompletion_tokens:{completion_tokens}")
+        # print(f"prompt_cache_hit_tokens:{cache_hit_tokens}")
+        # print(f"prompt_cache_miss_tokens:{cache_miss_tokens}\n")
 
-            with open(f"{relative_path}/historical_dialogs.txt", "w", encoding='utf-8') as file:
-                file.write(both_content)
+    cost = (0.3 * cache_hit_tokens + 2 * cache_miss_tokens + 3 * completion_tokens) / 1000000
 
-            context.append({"role": "user", "content": both_content})
-            context.append({"role": "assistant", "content": "I will handle these contents properly!"})
-            # 重要信息
-            important_info_content = generate_important_info(user_name[0], important_info, query_embedding, time_span)
-            temp_important_info_content = important_info_content
+    print(f"本次请求消费{cost}元\n")
 
-            important_info_content[0] = "以下是'需要注意到的重要信息'，你应当根据当前场景有选择性地参考他们，而不是全部参考他们。分数越高的信息越重要。\n\n" + important_info_content[0]
+    thread = threading.Thread(target=balances_info)
+    thread.start()
 
-            # print(f"{important_info_content[0]}\n")
-            with open(f"{relative_path}/important_info.txt", "w", encoding='utf-8') as file:
-                file.write(important_info_content[0])
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"本次请求执行时间为{total_time}s\n")
 
-            context.append({"role": "user", "content": important_info_content[0]})
-            context.append({"role": "assistant", "content": "Got it!"})
+    if reasoning_content != "":
+        full_content = f'completion_tokens:{completion_tokens}\nprompt_cache_hit_tokens:{cache_hit_tokens}\nprompt_cache_miss_tokens:{cache_miss_tokens}\n\n本次请求消费{cost}元\n\n思维链:\n{reasoning_content}\n\n最终回复:\n{content}'
 
-            fixed_context_length = len(context)
+        with open(f"{relative_path}/final_response.txt", "w", encoding='utf-8') as file:
+            file.write(full_content)
 
-            for t in temp_context:
-                context.append(t)
+        return {"reasoning_content": reasoning_content, "content": content}
+    else:
+        full_content = f'completion_tokens:{completion_tokens}\nprompt_cache_hit_tokens:{cache_hit_tokens}\nprompt_cache_miss_tokens:{cache_miss_tokens}\n\n本次请求消费{cost}元\n\n最终回复:\n{content}'
 
-            # 管理上下文
-            if context_length > 2*max_context:
-                context = manage_context(max_context,context,fixed_context_length)
+        with open(f"{relative_path}/final_response.txt", "w", encoding='utf-8') as file:
+            file.write(full_content)
 
-            temp_last_task = get_all_tasks()
-            temp_last_promise = get_last_promise()
-
-            task_type = 0
-
-            if len(temp_last_task) > 1:
-                for t in temp_last_task[-2:]:
-                    if '进行中' in t:
-                        task_type = 1
-                        break
-
-            if len(temp_last_task) > 0:
-                # 最新的任务显示已完成 and 有has helped
-                if '已完成' in temp_last_task[-1] and f'{current_assistant[0]} has helped' in temp_last_task[-1]:
-                    task_type = 2
-
-            if '兑现中' in temp_last_promise:
-                task_type = 1
-
-            date_format = "%Y-%m-%d %H:%M:%S"
-            current_time = datetime.timestamp(datetime.now())
-
-            temp_time = 0
-
-            temp_time = datetime.strptime(get_last_appearance_time(user_name[0]), date_format)
-            temp_time = temp_time.timestamp()
-
-            if user_name[0] not in latest_appearance_time and temp_time != 0:
-                latest_appearance_time[user_name[0]] = temp_time
-
-            if task_type == 0:
-                # 距离上次形象变化超过20分钟，提醒注意形象变化
-                if current_time - latest_appearance_time[user_name[0]] > 1200:
-                    # 防止因外貌未发生变化导致的反复询问
-                    latest_appearance_time[user_name[0]] = current_time
-
-                    # 最近两件事中，无进行中和已完成的任务，强调这些提示以注意到可能的外在形象变化以及使用多样化语句
-                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons (don't mention your appearance if your appearance has no changes!) and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>)"
-                else:
-                    merge_result = f"{merge_result} (<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>)"
-            else:
-                # 距离上次形象变化超过20分钟，提醒注意形象变化
-                if current_time - latest_appearance_time[user_name[0]] > 1200:
-                    # 防止因外貌未发生变化导致的反复询问
-                    latest_appearance_time[user_name[0]] = current_time
-
-                    merge_result = f"{merge_result} (<系统提示>check whether your appearance will change for some reasons (don't mention your appearance if your appearance has no changes!)</系统提示>)"
-
-            if task_type == 1:
-                # 有进行中的任务，强调这些提示以推动情节发展
-                merge_result = f"{merge_result} (<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>)"
-            if task_type == 2:
-                # 最新的任务是已完成的状态，强调这些提示以关心用户的当前状态
-                merge_result = f"{merge_result} (<系统提示>check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>)"
-
-            context.append({"role": "user", "content": merge_result})
-
-            print(f"向AI发送的最新消息:{merge_result}\n")
-
-            # 获取deepseek回复
-            # 用流式输出显示进度
-            task = asyncio.create_task(get_ai_response_stream(model[0], context, user_name[0]))
-            result = await task
-
-            socketio.emit('final_response', result.get('content'))
-
-            change_likeability_task = None
-            if enable_likeability[0] == 1:
-                change_likeability_task = asyncio.create_task(change_likeability(merge_result, result["content"], current_likeability[0], memories, 3, user_name[0]))
-                # change_likeability_thread = threading.Thread(target=change_likeability, args=(merge_result, result["content"], current_likeability[0], memories, 3, user_name[0]))
-                # change_likeability_thread.start()
-
-            if len(memories) > 3:
-                # 获取Translation部分
-                t1 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 1))
-                t2 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 2))
-                t3 = asyncio.create_task(get_translation_part(memories[-3:], temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 3))
-                if enable_likeability[0] == 0:
-                    await t1
-                    await t2
-                    await t3
-                    await asyncio.sleep(2)
-                else:
-                    await t1
-                    await t2
-                    await t3
-                    await change_likeability_task
-                    await asyncio.sleep(2)
-                    socketio.emit('likeability', current_likeability[0])
-                '''
-                t1 = threading.Thread(target=get_translation_part, args=(
-                memories[-3:], temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 1))
-                t2 = threading.Thread(target=get_translation_part, args=(
-                memories[-3:], temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 2))
-                t3 = threading.Thread(target=get_translation_part, args=(
-                memories[-3:], temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 3))
-
-                t1.start()
-                await asyncio.sleep(2)
-                t2.start()
-                await asyncio.sleep(2)
-                t3.start()
-                '''
-            else:
-                # 获取Translation部分
-                t1 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 1))
-                t2 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 2))
-                t3 = asyncio.create_task(get_translation_part(memories, temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 3))
-                if enable_likeability[0] == 0:
-                    await t1
-                    await t2
-                    await t3
-                    await asyncio.sleep(2)
-                else:
-                    await t1
-                    await t2
-                    await t3
-                    await change_likeability_task
-                    await asyncio.sleep(2)
-                    socketio.emit('likeability', current_likeability[0])
-                '''
-                t1 = threading.Thread(target=get_translation_part, args=(
-                memories, temp_important_info_content[1], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 1))
-                t2 = threading.Thread(target=get_translation_part, args=(
-                memories, temp_important_info_content[2], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 2))
-                t3 = threading.Thread(target=get_translation_part, args=(
-                memories, temp_important_info_content[3], 3, merge_result, result["content"], user_name[0],
-                current_assistant[0], 3))
-
-                t1.start()
-                await asyncio.sleep(2)
-                t2.start()
-                await asyncio.sleep(2)
-                t3.start()
-                '''
-
-            '''
-            # 处理重要信息的任务执行情况
-            task_status = 0
-            while task_status < 3:
-                await asyncio.sleep(1)
-                task_status = get_task_status()
-            '''
-
-            # 去掉所有的hint
-            pattern = r"\s*\(<系统提示>check whether your appearance will change for some reasons \(don't mention your appearance if your appearance has no changes!\)</系统提示>\)"
-            merge_result = re.sub(pattern, r'', merge_result)
-            pattern = r"\s*\(<系统提示>check whether your appearance will change for some reasons \(don't mention your appearance if your appearance has no changes!\) and try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
-            merge_result = re.sub(pattern, r'', merge_result)
-            pattern = r"\s*\(<系统提示>response to the user properly and use straightforward sentences to describe the next scene detailedly</系统提示>\)"
-            merge_result = re.sub(pattern, r'', merge_result)
-            pattern = r"\s*\(<系统提示>check whether the user's current status is good and response to the user properly with straightforward sentences</系统提示>\)"
-            merge_result = re.sub(pattern, r'', merge_result)
-            pattern = r"\s*\(<系统提示>try to use various but straightforward sentences and behaviors that are not similar to former dialogs</系统提示>\)"
-            merge_result = re.sub(pattern, r'', merge_result)
-
-            # 添加到上下文中
-            context_list.append({"who": user_name[0],
-                                 "user_content": merge_result,
-                                 "assistant_content": result["content"]})
-
-            # 添加到记忆json中
-            # 如果启用了好感度的话，加上likeability
-            if enable_likeability[0] == 0:
-                add_to_memory([
-                    {"timestamp": timestamp,
-                     "user_content": merge_result,
-                     "assistant_content": result["content"],
-                     "assistant_name": current_assistant[0]}
-                ], user_name[0])
-            else:
-                add_to_memory([
-                    {"timestamp": timestamp,
-                     "user_content": merge_result,
-                     "assistant_content": result["content"],
-                     "assistant_name": current_assistant[0],
-                     "likeability": current_likeability[0]}
-                ], user_name[0])
-
-            # 将用户的消息embedding到rag中
-            # 太短的merge_result不发送
-            if len(merge_result) > 10:
-                user_content_embedding = get_query_embedding(merge_result)
-
-                if user_content_embedding:
-                    rag_dic = {
-                        "timestamp": timestamp,
-                        "user_content": merge_result,
-                        "assistant_content": result["content"],
-                        "embedding": user_content_embedding
-                    }
-
-                    write_in_rag(user_name[0], rag_dic)
-            else:
-                print(f"合并的消息太短，不添加到{user_name[0]}_rag.json中\n")
-
-            '''
-            # 处理重要信息的任务执行失败的话，不进行记录
-            if task_status == 3:
-
-            else:
-                await asyncio.sleep(2)
-                socketio.emit('error', "Oops! An error has occurred! Please try to send a message again!")
-            '''
-
-        except Exception as e:
-            print(f"回复消息时出错:{e}")
-
-async def main():
-    while True:
-        await asyncio.sleep(0.1)
-        if len(new_messages_list) > 0:
-            task = asyncio.create_task(merge_msgs())
-            await task
-
-def run_app():
-    # app.run(debug=True)
-    socketio.run(app, port=5005, allow_unsafe_werkzeug=True)
-
-app_thread = threading.Thread(target=run_app)
-app_thread.start()
-
-asyncio.run(main())
+        return {"content": content}

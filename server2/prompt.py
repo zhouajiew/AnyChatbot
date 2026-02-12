@@ -6,7 +6,7 @@ from character import *
 from deepseek import *
 from memory import *
 from translation import *
-from global_variable import current_assistant
+from global_variable import *
 
 # 获取当前文件所在的目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
